@@ -1,0 +1,13 @@
+/target
+*.sir.json
+
+# Scala/SBT
+scala-loader/**/target/
+scala-loader/project/target/
+scala-loader/project/project/
+
+# IDE
+.metals/
+.bsp/
+.vscode/
+.idea/

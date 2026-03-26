@@ -1,0 +1,68 @@
+[workspace]
+members = ["rustus-core", "rustus-macros", "rustus-prelude"]
+resolver = "3"
+
+[package]
+name = "rustus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustus-core = { path = "rustus-core" }
+rustus-macros = { path = "rustus-macros" }
+rustus-prelude = { path = "rustus-prelude" }
+serde_json = "1"
+
+# --- Examples: test-starting (unsorted dev tests) ---
+[[example]]
+name = "validator"
+path = "examples/test-starting/validator.rs"
+
+[[example]]
+name = "test_derives"
+path = "examples/test-starting/test_derives.rs"
+
+[[example]]
+name = "test_list"
+path = "examples/test-starting/test_list.rs"
+
+[[example]]
+name = "test_bigint"
+path = "examples/test-starting/test_bigint.rs"
+
+[[example]]
+name = "test_names"
+path = "examples/test-starting/test_names.rs"
+
+[[example]]
+name = "test_renumber"
+path = "examples/test-starting/test_renumber.rs"
+
+[[example]]
+name = "test_typing"
+path = "examples/test-starting/test_typing.rs"
+
+[[example]]
+name = "test_errors"
+path = "examples/test-starting/test_errors.rs"
+
+[[example]]
+name = "test_api"
+path = "examples/test-starting/test_api.rs"
+
+[[example]]
+name = "with_prelude"
+path = "examples/test-starting/with_prelude.rs"
+
+[[example]]
+name = "test_repr"
+path = "examples/test-starting/test_repr.rs"
+
+[[example]]
+name = "test_typeclass"
+path = "examples/test-starting/test_typeclass.rs"
+
+# --- Examples: real validators ---
+[[example]]
+name = "pubkey-validator"
+path = "examples/pubkey-validator/main.rs"

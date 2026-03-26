@@ -1,0 +1,8 @@
+[package]
+name = "rustus-prelude"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustus-core = { path = "../rustus-core" }
+rustus-macros = { path = "../rustus-macros" }
