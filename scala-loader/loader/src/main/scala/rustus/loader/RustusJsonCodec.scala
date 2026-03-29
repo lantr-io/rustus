@@ -369,7 +369,23 @@ object RustusJsonCodec:
   private def parseUplcConstant(v: Any): RUplcConstant =
     val obj = v.asInstanceOf[Map[String, Any]]
     obj("type").asInstanceOf[String] match
-      case "Integer" => RUplcConstant.Integer(obj("value").asInstanceOf[Number].longValue)
+      case "Integer" =>
+        val value = obj("value") match
+          case n: Number => n.longValue
+          case signAndDigits: List[_] =>
+            // num-bigint serde: [sign, [digit, ...]]
+            val parts = signAndDigits.asInstanceOf[List[Any]]
+            val sign = parts(0).asInstanceOf[Number].intValue
+            val digits = parts(1).asInstanceOf[List[Any]].map(_.asInstanceOf[Number].longValue)
+            if digits.isEmpty then 0L
+            else
+              var result = BigInt(0)
+              for (d, i) <- digits.zipWithIndex do
+                result = result + (BigInt(d) << (32 * i))
+              val signed = if sign == 2 then -result else result
+              signed.toLong
+          case other => throw new RuntimeException(s"Unexpected Integer value: $other")
+        RUplcConstant.Integer(value)
       case "ByteString" => RUplcConstant.ByteString(
         obj("value").asInstanceOf[List[Any]].map(_.asInstanceOf[Number].intValue)
       )

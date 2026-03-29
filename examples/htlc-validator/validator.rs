@@ -33,7 +33,7 @@ pub fn htlc_validator(sc_data: Data) {
     let action: Action = FromData::from_data(&ctx.redeemer).unwrap();
 
     match ctx.script_info {
-        v3::ScriptInfo::SpendingScript { datum, .. } => {
+        v3::ScriptInfo::SpendingScript { tx_out_ref, datum } => {
             let datum_data: Data = match datum {
                 PlutusOption::Some { value } => value,
                 PlutusOption::None => panic!("Expected datum"),
