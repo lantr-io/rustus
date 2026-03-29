@@ -25,8 +25,6 @@ struct CompileCtx {
     registered_types: HashSet<String>,
     /// Generic type parameter names (e.g., ["T"]).
     generic_type_params: Vec<String>,
-    /// Name of the typeclass equality variable if in a generic function with PartialEq bound.
-    typeclass_eq_var: Option<String>,
     /// Current function's Rust name (for detecting recursive calls).
     current_fn_name: Option<String>,
     /// Map from Rust function name to SIR name (for recursive calls).
@@ -43,7 +41,6 @@ impl CompileCtx {
             type_registrations: Vec::new(),
             registered_types: HashSet::new(),
             generic_type_params: Vec::new(),
-            typeclass_eq_var: None,
             current_fn_name: None,
             name_remaps: HashMap::new(),
             name_counts: HashMap::new(),
@@ -301,11 +298,12 @@ pub fn compile_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .last()
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
-                if trait_name == "PartialEq" {
+                if trait_name == "PartialEq" || trait_name == "PartialOrd" {
                     let idx = generic_type_params.len() as i64; // 1-based since we just pushed
+                    let tn = trait_name.clone();
                     typeclass_bounds.push(quote! {
                         rustus_core::pre_sir::TypeclassBound {
-                            trait_name: "PartialEq".to_string(),
+                            trait_name: #tn.to_string(),
                             type_param_index: #idx,
                         }
                     });
@@ -314,15 +312,12 @@ pub fn compile_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let has_partial_eq = !typeclass_bounds.is_empty();
-
     // Build CompileCtx
     let mut ctx = CompileCtx::new();
     ctx.generic_type_params = generic_type_params.clone();
     ctx.current_fn_name = Some(fn_name_str.clone());
-    if has_partial_eq {
-        ctx.typeclass_eq_var = Some("__eq".to_string());
-    }
+    // Typeclass var names are set by lowering, not the macro.
+    // The macro just passes the bounds through to PreFnDef.
     if sir_name != fn_name_str {
         ctx.name_remaps
             .insert(fn_name_str.clone(), sir_name.clone());

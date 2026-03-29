@@ -95,12 +95,20 @@ fn type_env_from_type_dict(td: &TypeDict) -> TypeEnv {
 // LowerCtx: the lowering context
 // ---------------------------------------------------------------------------
 
+/// A typeclass variable in scope during lowering.
+struct TypeclassVar {
+    /// Variable name in SIR (e.g., "__eq", "__ord")
+    name: String,
+    /// The trait name (e.g., "PartialEq", "PartialOrd")
+    trait_name: String,
+}
+
 pub struct LowerCtx<'a> {
     ctx: &'a ResolutionContext,
     type_dict: &'a TypeDict,
     env: TypeEnv,
-    /// Name of the typeclass equality variable (e.g., "__eq") if in a generic function.
-    typeclass_eq_var: Option<String>,
+    /// Typeclass variables in scope for generic functions.
+    typeclass_vars: Vec<TypeclassVar>,
     /// Current function's Rust name (for detecting recursive calls).
     current_fn_name: Option<String>,
     /// Current function's SIR name (for recursive call resolution).
@@ -113,10 +121,15 @@ impl<'a> LowerCtx<'a> {
             ctx,
             type_dict,
             env: type_env_from_type_dict(type_dict),
-            typeclass_eq_var: None,
+            typeclass_vars: Vec::new(),
             current_fn_name: None,
             current_sir_name: None,
         }
+    }
+
+    /// Find a typeclass variable by trait name.
+    fn find_typeclass_var(&self, trait_name: &str) -> Option<&TypeclassVar> {
+        self.typeclass_vars.iter().find(|v| v.trait_name == trait_name)
     }
 
     fn resolve_type_hint(&self, hint: &TypeHint) -> SIRType {
@@ -434,48 +447,51 @@ impl<'a> LowerCtx<'a> {
         }
 
         // Append typeclass args
-        if is_recursive && self.typeclass_eq_var.is_some() {
-            // Recursive call: pass the typeclass var from our scope
-            let eq_var = self.typeclass_eq_var.as_ref().unwrap();
-            let eq_tp = self
-                .env
-                .lookup(eq_var)
-                .cloned()
-                .unwrap_or(SIRType::Unresolved);
-            let apply_tp = peel_fun_result(&remaining_tp);
-            result = SIR::Apply {
-                f: Box::new(result),
-                arg: Box::new(SIR::Var {
-                    name: eq_var.clone(),
-                    tp: eq_tp,
-                    anns: AnnotationsDecl::empty(),
-                }),
-                tp: apply_tp,
-                anns: anns.clone(),
-            };
+        if is_recursive && !self.typeclass_vars.is_empty() {
+            // Recursive call: pass all typeclass vars from our scope
+            for tc_var in &self.typeclass_vars {
+                let tc_tp = self
+                    .env
+                    .lookup(&tc_var.name)
+                    .cloned()
+                    .unwrap_or(SIRType::Unresolved);
+                let apply_tp = peel_fun_result(&remaining_tp);
+                result = SIR::Apply {
+                    f: Box::new(result),
+                    arg: Box::new(SIR::Var {
+                        name: tc_var.name.clone(),
+                        tp: tc_tp,
+                        anns: AnnotationsDecl::empty(),
+                    }),
+                    tp: apply_tp.clone(),
+                    anns: anns.clone(),
+                };
+                remaining_tp = apply_tp;
+            }
         } else {
             // Non-recursive: resolve typeclass args from concrete arg types
             let fdef = self.ctx.lookup_function(func_path);
 
             if let Some(fdef) = fdef {
                 for bound in &fdef.typeclass_bounds {
-                    if bound.typeclass == "PartialEq" {
-                        // Determine concrete element type from the lowered arg
-                        let elem_tp = if bound.elem_arg_index < lowered_args.len() {
-                            crate::typing::sir_type(&lowered_args[bound.elem_arg_index])
-                        } else {
-                            SIRType::Data
-                        };
-                        let eq_sir = make_equality_builtin_with_ctx(&elem_tp, self.ctx);
-                        let apply_tp = peel_fun_result(&remaining_tp);
-                        result = SIR::Apply {
-                            f: Box::new(result),
-                            arg: Box::new(eq_sir),
-                            tp: apply_tp.clone(),
-                            anns: anns.clone(),
-                        };
-                        remaining_tp = apply_tp;
-                    }
+                    let elem_tp = if bound.elem_arg_index < lowered_args.len() {
+                        crate::typing::sir_type(&lowered_args[bound.elem_arg_index])
+                    } else {
+                        SIRType::Data
+                    };
+                    let tc_sir = match bound.typeclass.as_str() {
+                        "PartialEq" => make_equality_builtin_with_ctx(&elem_tp, self.ctx),
+                        "PartialOrd" => make_ord_builtin_with_ctx(&elem_tp, self.ctx),
+                        _ => make_equality_builtin_with_ctx(&elem_tp, self.ctx),
+                    };
+                    let apply_tp = peel_fun_result(&remaining_tp);
+                    result = SIR::Apply {
+                        f: Box::new(result),
+                        arg: Box::new(tc_sir),
+                        tp: apply_tp.clone(),
+                        anns: anns.clone(),
+                    };
+                    remaining_tp = apply_tp;
                 }
             }
         }
@@ -500,14 +516,14 @@ impl<'a> LowerCtx<'a> {
         match op {
             BinOp::Eq => {
                 // In generic function with PartialEq: use typeclass var
-                if let Some(ref eq_var) = self.typeclass_eq_var {
+                if let Some(tc_var) = self.find_typeclass_var("PartialEq") {
                     let eq_tp = self
                         .env
-                        .lookup(eq_var)
+                        .lookup(&tc_var.name)
                         .cloned()
                         .unwrap_or(SIRType::Unresolved);
                     let eq_var_sir = SIR::Var {
-                        name: eq_var.clone(),
+                        name: tc_var.name.clone(),
                         tp: eq_tp,
                         anns: AnnotationsDecl::empty(),
                     };
@@ -818,35 +834,42 @@ impl ResolutionContext {
 
         // Build function type: p1 → p2 → ... → [eq →] ... → ret
         let mut fn_type = ret_type;
-        let mut eq_type_for_env: Option<SIRType> = None;
+        // (var_name, trait_name, sir_type) for each typeclass bound
+        let mut typeclass_params: Vec<(String, String, SIRType)> = Vec::new();
 
         // Add typeclass param types (innermost)
         for bound in def.typeclass_bounds.iter().rev() {
-            if bound.trait_name == "PartialEq" {
-                let idx = bound.type_param_index;
-                let tp_name = def
-                    .generic_params
-                    .get((idx - 1) as usize)
-                    .cloned()
-                    .unwrap_or_else(|| "T".to_string());
-                let tv = SIRType::TypeVar {
-                    name: tp_name,
-                    opt_id: Some(idx),
-                    is_builtin: false,
-                };
-                let eq_type = SIRType::Fun {
-                    from: Box::new(tv.clone()),
-                    to: Box::new(SIRType::Fun {
-                        from: Box::new(tv),
-                        to: Box::new(SIRType::Boolean),
-                    }),
-                };
-                fn_type = SIRType::Fun {
-                    from: Box::new(eq_type.clone()),
-                    to: Box::new(fn_type),
-                };
-                eq_type_for_env = Some(eq_type);
-            }
+            let idx = bound.type_param_index;
+            let tp_name = def
+                .generic_params
+                .get((idx - 1) as usize)
+                .cloned()
+                .unwrap_or_else(|| "T".to_string());
+            let tv = SIRType::TypeVar {
+                name: tp_name,
+                opt_id: Some(idx),
+                is_builtin: false,
+            };
+            let (var_name, tc_ret_type) = match bound.trait_name.as_str() {
+                "PartialEq" => ("__eq".to_string(), SIRType::Boolean),
+                "PartialOrd" => ("__ord".to_string(), SIRType::SumCaseClass {
+                    decl_name: "scalus.cardano.onchain.plutus.prelude.Order".to_string(),
+                    type_args: vec![],
+                }),
+                other => (format!("__{}", other.to_lowercase()), SIRType::Data),
+            };
+            let tc_type = SIRType::Fun {
+                from: Box::new(tv.clone()),
+                to: Box::new(SIRType::Fun {
+                    from: Box::new(tv),
+                    to: Box::new(tc_ret_type),
+                }),
+            };
+            fn_type = SIRType::Fun {
+                from: Box::new(tc_type.clone()),
+                to: Box::new(fn_type),
+            };
+            typeclass_params.push((var_name, bound.trait_name.clone(), tc_type));
         }
 
         // Add normal param types
@@ -889,10 +912,13 @@ impl ResolutionContext {
         lower.current_fn_name = Some(def.rust_name.clone());
         lower.current_sir_name = Some(def.sir_name.clone());
 
-        // Set up typeclass var
-        if let Some(eq_type) = &eq_type_for_env {
-            lower.typeclass_eq_var = Some("__eq".to_string());
-            lower.env.insert("__eq".to_string(), eq_type.clone());
+        // Set up typeclass vars
+        for (var_name, trait_name, tc_type) in &typeclass_params {
+            lower.typeclass_vars.push(TypeclassVar {
+                name: var_name.clone(),
+                trait_name: trait_name.clone(),
+            });
+            lower.env.insert(var_name.clone(), tc_type.clone());
         }
 
         // Add params to env
@@ -906,12 +932,12 @@ impl ResolutionContext {
         // Phase 3: Wrap in LamAbs chain (no longer needs LowerCtx)
         let mut sir_value = sir_body;
 
-        // Typeclass param LamAbs (innermost)
-        if let Some(eq_type) = eq_type_for_env {
+        // Typeclass param LamAbs (innermost — wrap in reverse order)
+        for (var_name, _trait_name, tc_type) in typeclass_params.into_iter() {
             sir_value = SIR::LamAbs {
                 param: Box::new(SIR::Var {
-                    name: "__eq".to_string(),
-                    tp: eq_type,
+                    name: var_name,
+                    tp: tc_type,
                     anns: AnnotationsDecl::empty(),
                 }),
                 term: Box::new(sir_value),
@@ -1071,6 +1097,33 @@ fn resolve_one_element_inner(tp: &SIRType, ctx: &ResolutionContext) -> SIRType {
         }
     }
     tp.clone()
+}
+
+/// Create the correct ord builtin for a given SIRType, resolving one_element types.
+fn make_ord_builtin_with_ctx(tp: &SIRType, ctx: &ResolutionContext) -> SIR {
+    let resolved = resolve_one_element_inner(tp, ctx);
+    make_ord_builtin(&resolved)
+}
+
+/// Create an ord builtin (LessThan) for a given SIRType.
+/// Returns a function `(A, A) -> Boolean` using LessThan builtins.
+fn make_ord_builtin(tp: &SIRType) -> SIR {
+    let (fun, operand_tp) = match tp {
+        SIRType::Integer => (DefaultFun::LessThanInteger, SIRType::Integer),
+        SIRType::ByteString => (DefaultFun::LessThanByteString, SIRType::ByteString),
+        _ => (DefaultFun::EqualsData, SIRType::Data), // fallback
+    };
+    SIR::Builtin {
+        builtin_fun: fun,
+        tp: SIRType::Fun {
+            from: Box::new(operand_tp.clone()),
+            to: Box::new(SIRType::Fun {
+                from: Box::new(operand_tp),
+                to: Box::new(SIRType::Boolean),
+            }),
+        },
+        anns: AnnotationsDecl::empty(),
+    }
 }
 
 /// Create the correct equality builtin for a given SIRType.
