@@ -26,6 +26,7 @@ impl ByteString {
     }
 
     pub fn from_hex(s: &str) -> Self {
+        assert!(s.len() % 2 == 0, "hex string must have even length, got {}", s.len());
         let bytes = (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("invalid hex"))
@@ -129,17 +130,10 @@ impl HasSIRType for ByteString {
 
 impl crate::typeclasses::OnchainPartialEq for ByteString {
     fn sir_eq() -> crate::sir::SIR {
-        crate::sir::SIR::Builtin {
-            builtin_fun: crate::default_fun::DefaultFun::EqualsByteString,
-            tp: SIRType::Fun {
-                from: Box::new(SIRType::ByteString),
-                to: Box::new(SIRType::Fun {
-                    from: Box::new(SIRType::ByteString),
-                    to: Box::new(SIRType::Boolean),
-                }),
-            },
-            anns: crate::module::AnnotationsDecl::empty(),
-        }
+        crate::typeclasses::make_binary_builtin(
+            crate::default_fun::DefaultFun::EqualsByteString,
+            SIRType::ByteString,
+        )
     }
 }
 

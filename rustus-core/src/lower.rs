@@ -1111,19 +1111,9 @@ fn make_ord_builtin(tp: &SIRType) -> SIR {
     let (fun, operand_tp) = match tp {
         SIRType::Integer => (DefaultFun::LessThanInteger, SIRType::Integer),
         SIRType::ByteString => (DefaultFun::LessThanByteString, SIRType::ByteString),
-        _ => (DefaultFun::EqualsData, SIRType::Data), // fallback
+        _ => (DefaultFun::LessThanInteger, SIRType::Integer), // fallback — Data has no ordering builtin
     };
-    SIR::Builtin {
-        builtin_fun: fun,
-        tp: SIRType::Fun {
-            from: Box::new(operand_tp.clone()),
-            to: Box::new(SIRType::Fun {
-                from: Box::new(operand_tp),
-                to: Box::new(SIRType::Boolean),
-            }),
-        },
-        anns: AnnotationsDecl::empty(),
-    }
+    crate::typeclasses::make_binary_builtin(fun, operand_tp)
 }
 
 /// Create the correct equality builtin for a given SIRType.
@@ -1134,17 +1124,7 @@ fn make_equality_builtin(tp: &SIRType) -> SIR {
         SIRType::String => (DefaultFun::EqualsString, SIRType::String),
         _ => (DefaultFun::EqualsData, SIRType::Data),
     };
-    SIR::Builtin {
-        builtin_fun: fun,
-        tp: SIRType::Fun {
-            from: Box::new(operand_tp.clone()),
-            to: Box::new(SIRType::Fun {
-                from: Box::new(operand_tp),
-                to: Box::new(SIRType::Boolean),
-            }),
-        },
-        anns: AnnotationsDecl::empty(),
-    }
+    crate::typeclasses::make_binary_builtin(fun, operand_tp)
 }
 
 /// Resolve a field's type from a scrutinee's type.

@@ -370,22 +370,7 @@ object RustusJsonCodec:
     val obj = v.asInstanceOf[Map[String, Any]]
     obj("type").asInstanceOf[String] match
       case "Integer" =>
-        val value = obj("value") match
-          case n: Number => n.longValue
-          case signAndDigits: List[_] =>
-            // num-bigint serde: [sign, [digit, ...]]
-            val parts = signAndDigits.asInstanceOf[List[Any]]
-            val sign = parts(0).asInstanceOf[Number].intValue
-            val digits = parts(1).asInstanceOf[List[Any]].map(_.asInstanceOf[Number].longValue)
-            if digits.isEmpty then 0L
-            else
-              var result = BigInt(0)
-              for (d, i) <- digits.zipWithIndex do
-                result = result + (BigInt(d) << (32 * i))
-              val signed = if sign == 2 then -result else result
-              signed.toLong
-          case other => throw new RuntimeException(s"Unexpected Integer value: $other")
-        RUplcConstant.Integer(value)
+        RUplcConstant.Integer(parseNumBigInt(obj("value")).toLong)
       case "ByteString" => RUplcConstant.ByteString(
         obj("value").asInstanceOf[List[Any]].map(_.asInstanceOf[Number].intValue)
       )
@@ -513,6 +498,26 @@ object RustusJsonCodec:
         )
       case other => throw new RuntimeException(s"Unknown SIR type: $other")
 
+  // --- Shared BigInt parsing for num-bigint serde format ---
+
+  /** Parse a BigInt from num-bigint serde format: Number, String, or [sign, [digit, ...]].
+    * sign: 0=NoSign, 1=Plus, 2=Minus; digits are u32 values in little-endian order.
+    */
+  private def parseNumBigInt(v: Any): BigInt = v match
+    case s: String => BigInt(s)
+    case n: Number => BigInt(n.longValue)
+    case signAndDigits: List[_] =>
+      val parts = signAndDigits.asInstanceOf[List[Any]]
+      val sign = parts(0).asInstanceOf[Number].intValue
+      val digits = parts(1).asInstanceOf[List[Any]].map(_.asInstanceOf[Number].longValue)
+      if digits.isEmpty then BigInt(0)
+      else
+        var result = BigInt(0)
+        for (d, i) <- digits.zipWithIndex do
+          result = result + (BigInt(d) << (32 * i))
+        if sign == 2 then -result else result
+    case other => throw new RuntimeException(s"Unexpected BigInt value: $other")
+
   // --- Data parsing for eval() arguments ---
 
   /** Parse a Rust Data enum value from a generic JSON map.
@@ -528,23 +533,7 @@ object RustusJsonCodec:
         val args = obj("args").asInstanceOf[List[Any]].map(parseRustusData)
         scalus.uplc.builtin.Data.Constr(tag, ScalusList.from(args))
       case "I" =>
-        // num-bigint serde serializes BigInt as [sign, [digit, ...]]
-        // where sign: 0=NoSign, 1=Plus, 2=Minus and digits are u32 values
-        val value = obj("value") match
-          case s: String => BigInt(s)
-          case n: Number => BigInt(n.longValue)
-          case signAndDigits: List[_] =>
-            val parts = signAndDigits.asInstanceOf[List[Any]]
-            val sign = parts(0).asInstanceOf[Number].intValue
-            val digits = parts(1).asInstanceOf[List[Any]].map(_.asInstanceOf[Number].longValue)
-            if digits.isEmpty then BigInt(0)
-            else
-              var result = BigInt(0)
-              for (d, i) <- digits.zipWithIndex do
-                result = result + (BigInt(d) << (32 * i))
-              if sign == 2 then -result else result
-          case other => throw new RuntimeException(s"Unexpected I value: $other")
-        scalus.uplc.builtin.Data.I(value)
+        scalus.uplc.builtin.Data.I(parseNumBigInt(obj("value")))
       case "B" =>
         val bytes = obj("value").asInstanceOf[List[Any]].map(_.asInstanceOf[Number].byteValue).toArray
         scalus.uplc.builtin.Data.B(scalus.builtin.ByteString.fromArray(bytes))

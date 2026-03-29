@@ -53,10 +53,18 @@ impl<K: Clone + Ord, V: Clone> SortedMap<K, V> {
     where
         K: PartialEq,
     {
-        self.to_vec()
-            .into_iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v)
+        let mut cur = &self.inner;
+        loop {
+            match cur {
+                List::Nil => return None,
+                List::Cons { head, tail } => {
+                    if &head.fst == key {
+                        return Some(head.snd.clone());
+                    }
+                    cur = tail;
+                }
+            }
+        }
     }
 
     pub fn insert(self, key: K, value: V) -> Self
