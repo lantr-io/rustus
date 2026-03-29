@@ -75,3 +75,12 @@ path = "examples/pubkey-validator/main.rs"
 [[example]]
 name = "preimage-validator"
 path = "examples/preimage-validator/main.rs"
+
+# --- Tests: validator integration tests ---
+[[test]]
+name = "pubkey-validator-tests"
+path = "examples/pubkey-validator/tests.rs"
+
+[[test]]
+name = "preimage-validator-tests"
+path = "examples/preimage-validator/tests.rs"
