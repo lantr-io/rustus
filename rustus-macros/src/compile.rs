@@ -451,6 +451,10 @@ fn compile_stmts(stmts: &[Stmt], ctx: &mut CompileCtx) -> TokenStream2 {
         return match &stmts[0] {
             Stmt::Expr(expr, _) => compile_expr(expr, ctx),
             Stmt::Local(local) => compile_let_stmt(local, &[], ctx),
+            Stmt::Macro(stmt_mac) => compile_expr(&Expr::Macro(syn::ExprMacro {
+                attrs: stmt_mac.attrs.clone(),
+                mac: stmt_mac.mac.clone(),
+            }), ctx),
             _ => compile_unsupported("statement"),
         };
     }
@@ -459,6 +463,23 @@ fn compile_stmts(stmts: &[Stmt], ctx: &mut CompileCtx) -> TokenStream2 {
         Stmt::Local(local) => compile_let_stmt(local, &stmts[1..], ctx),
         Stmt::Expr(expr, _semi) => {
             let value = compile_expr(expr, ctx);
+            let body = compile_stmts(&stmts[1..], ctx);
+            quote! {
+                rustus_core::pre_sir::PreSIR::Let {
+                    name: "_".to_string(),
+                    type_hint: rustus_core::pre_sir::TypeHint::Infer,
+                    value: Box::new(#value),
+                    body: Box::new(#body),
+                    is_rec: false,
+                    anns: rustus_core::module::AnnotationsDecl::empty(),
+                }
+            }
+        }
+        Stmt::Macro(stmt_mac) => {
+            let value = compile_expr(&Expr::Macro(syn::ExprMacro {
+                attrs: stmt_mac.attrs.clone(),
+                mac: stmt_mac.mac.clone(),
+            }), ctx);
             let body = compile_stmts(&stmts[1..], ctx);
             quote! {
                 rustus_core::pre_sir::PreSIR::Let {
@@ -1085,12 +1106,9 @@ fn try_compile_from_data_call(
 // ---------------------------------------------------------------------------
 
 fn compile_unsupported(what: &str) -> TokenStream2 {
-    let msg = format!("unsupported {}", what);
+    let msg = format!("#[compile] unsupported {}", what);
     quote! {
-        rustus_core::pre_sir::PreSIR::Error {
-            message: #msg.to_string(),
-            anns: rustus_core::module::AnnotationsDecl::empty(),
-        }
+        compile_error!(#msg)
     }
 }
 

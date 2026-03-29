@@ -71,3 +71,7 @@ path = "examples/test-starting/test_functional_typeclass.rs"
 [[example]]
 name = "pubkey-validator"
 path = "examples/pubkey-validator/main.rs"
+
+[[example]]
+name = "preimage-validator"
+path = "examples/preimage-validator/main.rs"

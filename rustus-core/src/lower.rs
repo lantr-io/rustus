@@ -22,6 +22,67 @@ use crate::registry::ResolutionContext;
 use crate::sir::{self, SIR};
 use crate::sir_type::{DataDecl, SIRType, TypeEnv, TypeVar};
 
+/// Map builtin function name to (DefaultFun, return_type, param_types).
+fn resolve_builtin(name: &str) -> Option<(DefaultFun, SIRType, Vec<SIRType>)> {
+    use DefaultFun::*;
+    macro_rules! t {
+        (bs) => { SIRType::ByteString };
+        (int) => { SIRType::Integer };
+        (bl) => { SIRType::Boolean };
+        (s) => { SIRType::String };
+        (d) => { SIRType::Data };
+        (u) => { SIRType::Unit };
+    }
+    Some(match name {
+        // Integer ops
+        "add_integer" => (AddInteger, t!(int), vec![t!(int), t!(int)]),
+        "subtract_integer" => (SubtractInteger, t!(int), vec![t!(int), t!(int)]),
+        "multiply_integer" => (MultiplyInteger, t!(int), vec![t!(int), t!(int)]),
+        "divide_integer" => (DivideInteger, t!(int), vec![t!(int), t!(int)]),
+        "quotient_integer" => (QuotientInteger, t!(int), vec![t!(int), t!(int)]),
+        "remainder_integer" => (RemainderInteger, t!(int), vec![t!(int), t!(int)]),
+        "mod_integer" => (ModInteger, t!(int), vec![t!(int), t!(int)]),
+        "equals_integer" => (EqualsInteger, t!(bl), vec![t!(int), t!(int)]),
+        "less_than_integer" => (LessThanInteger, t!(bl), vec![t!(int), t!(int)]),
+        "less_than_equals_integer" => (LessThanEqualsInteger, t!(bl), vec![t!(int), t!(int)]),
+        // ByteString ops
+        "append_bytestring" => (AppendByteString, t!(bs), vec![t!(bs), t!(bs)]),
+        "equals_bytestring" => (EqualsByteString, t!(bl), vec![t!(bs), t!(bs)]),
+        "less_than_bytestring" => (LessThanByteString, t!(bl), vec![t!(bs), t!(bs)]),
+        "less_than_equals_bytestring" => (LessThanEqualsByteString, t!(bl), vec![t!(bs), t!(bs)]),
+        "length_of_bytestring" => (LengthOfByteString, t!(int), vec![t!(bs)]),
+        "index_bytestring" => (IndexByteString, t!(int), vec![t!(bs), t!(int)]),
+        "cons_bytestring" => (ConsByteString, t!(bs), vec![t!(int), t!(bs)]),
+        "slice_bytestring" => (SliceByteString, t!(bs), vec![t!(int), t!(int), t!(bs)]),
+        // String ops
+        "append_string" => (AppendString, t!(s), vec![t!(s), t!(s)]),
+        "equals_string" => (EqualsString, t!(bl), vec![t!(s), t!(s)]),
+        "encode_utf8" => (EncodeUtf8, t!(bs), vec![t!(s)]),
+        "decode_utf8" => (DecodeUtf8, t!(s), vec![t!(bs)]),
+        // Crypto
+        "sha2_256" => (Sha2_256, t!(bs), vec![t!(bs)]),
+        "sha3_256" => (Sha3_256, t!(bs), vec![t!(bs)]),
+        "blake2b_256" => (Blake2b_256, t!(bs), vec![t!(bs)]),
+        "blake2b_224" => (Blake2b_224, t!(bs), vec![t!(bs)]),
+        // Data ops
+        "equals_data" => (EqualsData, t!(bl), vec![t!(d), t!(d)]),
+        "serialise_data" => (SerialiseData, t!(bs), vec![t!(d)]),
+        "constr_data" => (ConstrData, t!(d), vec![t!(int), t!(d)]),
+        "map_data" => (MapData, t!(d), vec![t!(d)]),
+        "list_data" => (ListData, t!(d), vec![t!(d)]),
+        "i_data" => (IData, t!(d), vec![t!(int)]),
+        "b_data" => (BData, t!(d), vec![t!(bs)]),
+        "un_constr_data" => (UnConstrData, t!(d), vec![t!(d)]),
+        "un_map_data" => (UnMapData, t!(d), vec![t!(d)]),
+        "un_list_data" => (UnListData, t!(d), vec![t!(d)]),
+        "un_i_data" => (UnIData, t!(int), vec![t!(d)]),
+        "un_b_data" => (UnBData, t!(bs), vec![t!(d)]),
+        // Trace
+        "trace" => (Trace, t!(u), vec![t!(s), t!(u)]),
+        _ => return None,
+    })
+}
+
 fn type_env_from_type_dict(td: &TypeDict) -> TypeEnv {
     let mut env = TypeEnv::new();
     for (name, tp) in &td.vars {
@@ -310,6 +371,37 @@ impl<'a> LowerCtx<'a> {
 
     fn lower_call(&mut self, func_path: &str, args: &[PreSIR], anns: &AnnotationsDecl) -> SIR {
         let lowered_args: Vec<SIR> = args.iter().map(|a| self.lower_expr(a)).collect();
+
+        // Recognize builtins:: prefix → emit SIR::Builtin + Apply chain
+        if let Some(builtin_name) = func_path.strip_prefix("builtins::") {
+            if let Some((default_fun, ret_type, param_types)) = resolve_builtin(builtin_name) {
+                // Build the curried function type: P1 -> P2 -> ... -> Ret
+                let mut fun_type = ret_type;
+                for pt in param_types.iter().rev() {
+                    fun_type = SIRType::Fun {
+                        from: Box::new(pt.clone()),
+                        to: Box::new(fun_type),
+                    };
+                }
+                let mut result = SIR::Builtin {
+                    builtin_fun: default_fun,
+                    tp: fun_type.clone(),
+                    anns: anns.clone(),
+                };
+                let mut remaining_tp = fun_type;
+                for arg_sir in &lowered_args {
+                    let apply_tp = peel_fun_result(&remaining_tp);
+                    result = SIR::Apply {
+                        f: Box::new(result),
+                        arg: Box::new(arg_sir.clone()),
+                        tp: apply_tp.clone(),
+                        anns: anns.clone(),
+                    };
+                    remaining_tp = apply_tp;
+                }
+                return result;
+            }
+        }
 
         // Detect recursive call: same function, pass typeclass var from scope
         let is_recursive = self
