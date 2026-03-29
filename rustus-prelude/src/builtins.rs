@@ -4,6 +4,7 @@
 //! 1. Off-chain testing — run the same logic in Rust without the CEK machine
 //! 2. The `#[compile]` macro recognizes calls to these and emits SIR Builtin nodes
 
+use rustus_core::bytestring::ByteString;
 use rustus_core::num_bigint::BigInt;
 
 // ---------------------------------------------------------------------------
@@ -33,12 +34,10 @@ pub fn divide_integer(a: BigInt, b: BigInt) -> BigInt {
 }
 
 pub fn quotient_integer(a: BigInt, b: BigInt) -> BigInt {
-    // Truncated division (toward zero), matching Haskell's `quot`
     &a / &b
 }
 
 pub fn remainder_integer(a: BigInt, b: BigInt) -> BigInt {
-    // Truncated remainder, matching Haskell's `rem`
     &a % &b
 }
 
@@ -62,46 +61,47 @@ pub fn less_than_equals_integer(a: BigInt, b: BigInt) -> bool {
 // ByteString operations
 // ---------------------------------------------------------------------------
 
-pub fn append_bytestring(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
-    let mut result = a;
-    result.extend(b);
-    result
+pub fn append_bytestring(a: ByteString, b: ByteString) -> ByteString {
+    let mut result = a.to_vec();
+    result.extend(b.as_bytes());
+    ByteString::from_vec(result)
 }
 
-pub fn cons_bytestring(byte: u8, bs: Vec<u8>) -> Vec<u8> {
+pub fn cons_bytestring(byte: u8, bs: ByteString) -> ByteString {
     let mut result = vec![byte];
-    result.extend(bs);
-    result
+    result.extend(bs.as_bytes());
+    ByteString::from_vec(result)
 }
 
-pub fn slice_bytestring(start: i64, len: i64, bs: Vec<u8>) -> Vec<u8> {
-    let start = start as usize;
-    let len = len as usize;
-    if start >= bs.len() {
-        vec![]
+pub fn slice_bytestring(start: i64, len: i64, bs: ByteString) -> ByteString {
+    let s = start as usize;
+    let l = len as usize;
+    let bytes = bs.as_bytes();
+    if s >= bytes.len() {
+        ByteString::new()
     } else {
-        let end = (start + len).min(bs.len());
-        bs[start..end].to_vec()
+        let end = (s + l).min(bytes.len());
+        ByteString::from_slice(&bytes[s..end])
     }
 }
 
-pub fn length_of_bytestring(bs: &[u8]) -> BigInt {
+pub fn length_of_bytestring(bs: &ByteString) -> BigInt {
     BigInt::from(bs.len())
 }
 
-pub fn index_bytestring(bs: &[u8], index: i64) -> u8 {
-    bs[index as usize]
+pub fn index_bytestring(bs: &ByteString, index: i64) -> u8 {
+    bs.as_bytes()[index as usize]
 }
 
-pub fn equals_bytestring(a: &[u8], b: &[u8]) -> bool {
+pub fn equals_bytestring(a: &ByteString, b: &ByteString) -> bool {
     a == b
 }
 
-pub fn less_than_bytestring(a: &[u8], b: &[u8]) -> bool {
+pub fn less_than_bytestring(a: &ByteString, b: &ByteString) -> bool {
     a < b
 }
 
-pub fn less_than_equals_bytestring(a: &[u8], b: &[u8]) -> bool {
+pub fn less_than_equals_bytestring(a: &ByteString, b: &ByteString) -> bool {
     a <= b
 }
 
@@ -117,12 +117,12 @@ pub fn equals_string(a: &str, b: &str) -> bool {
     a == b
 }
 
-pub fn encode_utf8(s: &str) -> Vec<u8> {
-    s.as_bytes().to_vec()
+pub fn encode_utf8(s: &str) -> ByteString {
+    ByteString::from_vec(s.as_bytes().to_vec())
 }
 
-pub fn decode_utf8(bs: &[u8]) -> String {
-    String::from_utf8(bs.to_vec()).expect("invalid UTF-8")
+pub fn decode_utf8(bs: &ByteString) -> String {
+    String::from_utf8(bs.as_bytes().to_vec()).expect("invalid UTF-8")
 }
 
 // ---------------------------------------------------------------------------
@@ -131,22 +131,26 @@ pub fn decode_utf8(bs: &[u8]) -> String {
 
 use sha2::Digest as _;
 
-pub fn sha2_256(data: &[u8]) -> Vec<u8> {
-    sha2::Sha256::digest(data).to_vec()
+pub fn sha2_256(data: &ByteString) -> ByteString {
+    ByteString::from_vec(sha2::Sha256::digest(data.as_bytes()).to_vec())
 }
 
-pub fn sha3_256(data: &[u8]) -> Vec<u8> {
-    sha3::Sha3_256::digest(data).to_vec()
+pub fn sha3_256(data: &ByteString) -> ByteString {
+    ByteString::from_vec(sha3::Sha3_256::digest(data.as_bytes()).to_vec())
 }
 
-pub fn blake2b_256(data: &[u8]) -> Vec<u8> {
+pub fn blake2b_256(data: &ByteString) -> ByteString {
     use blake2::digest::Digest;
-    blake2::Blake2b::<blake2::digest::consts::U32>::digest(data).to_vec()
+    ByteString::from_vec(
+        blake2::Blake2b::<blake2::digest::consts::U32>::digest(data.as_bytes()).to_vec(),
+    )
 }
 
-pub fn blake2b_224(data: &[u8]) -> Vec<u8> {
+pub fn blake2b_224(data: &ByteString) -> ByteString {
     use blake2::digest::Digest;
-    blake2::Blake2b::<blake2::digest::consts::U28>::digest(data).to_vec()
+    ByteString::from_vec(
+        blake2::Blake2b::<blake2::digest::consts::U28>::digest(data.as_bytes()).to_vec(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -174,8 +178,10 @@ pub fn i_data(value: BigInt) -> Data {
     Data::I { value }
 }
 
-pub fn b_data(value: Vec<u8>) -> Data {
-    Data::B { value }
+pub fn b_data(value: ByteString) -> Data {
+    Data::B {
+        value: value.to_vec(),
+    }
 }
 
 pub fn un_constr_data(data: &Data) -> (BigInt, Vec<Data>) {
@@ -206,9 +212,9 @@ pub fn un_i_data(data: &Data) -> BigInt {
     }
 }
 
-pub fn un_b_data(data: &Data) -> Vec<u8> {
+pub fn un_b_data(data: &Data) -> ByteString {
     match data {
-        Data::B { value } => value.clone(),
+        Data::B { value } => ByteString::from_vec(value.clone()),
         _ => panic!("un_b_data: expected B"),
     }
 }

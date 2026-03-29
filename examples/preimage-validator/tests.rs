@@ -4,6 +4,7 @@
 mod validator;
 use validator::PreimageDatum;
 
+use rustus_core::bytestring::ByteString;
 use rustus_core::data::{Data, ToData};
 use rustus_prelude::builtins;
 use rustus_prelude::ledger::v1::*;
@@ -19,10 +20,10 @@ fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
             valid_range: Interval::always(),
             signatories: List::from_vec(signatories),
             data: List::Nil,
-            id: TxId { hash: vec![0x00] },
+            id: TxId { hash: ByteString::from_hex("00") },
         },
         purpose: ScriptPurpose::Spending {
-            tx_out_ref: TxOutRef { id: TxId { hash: vec![0x00] }, idx: 0.into() },
+            tx_out_ref: TxOutRef { id: TxId { hash: ByteString::from_hex("00") }, idx: 0.into() },
         },
     }.to_data()
 }
@@ -34,10 +35,10 @@ fn try_compile() -> Option<rustus::Validator> {
 #[test]
 fn correct_preimage_and_signer() {
     let Some(validator) = try_compile() else { return };
-    let secret = b"my secret preimage";
-    let pkh = PubKeyHash { hash: vec![0xaa, 0xbb] };
-    let datum = PreimageDatum { hash: builtins::sha2_256(secret), pkh: pkh.clone() }.to_data();
-    let redeemer = secret.to_vec().to_data();
+    let secret = ByteString::from_slice(b"my secret preimage");
+    let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
+    let datum = PreimageDatum { hash: builtins::sha2_256(&secret), pkh: pkh.clone() }.to_data();
+    let redeemer = secret.to_data();
     let result = validator.eval(&[datum, redeemer, make_ctx(vec![pkh])]).unwrap();
     assert!(result.succeeded(), "Expected success: {:?}", result.error);
 }
@@ -45,9 +46,12 @@ fn correct_preimage_and_signer() {
 #[test]
 fn wrong_preimage() {
     let Some(validator) = try_compile() else { return };
-    let pkh = PubKeyHash { hash: vec![0xaa, 0xbb] };
-    let datum = PreimageDatum { hash: builtins::sha2_256(b"correct"), pkh: pkh.clone() }.to_data();
-    let redeemer = b"wrong".to_vec().to_data();
+    let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
+    let datum = PreimageDatum {
+        hash: builtins::sha2_256(&ByteString::from_slice(b"correct")),
+        pkh: pkh.clone(),
+    }.to_data();
+    let redeemer = ByteString::from_slice(b"wrong").to_data();
     let result = validator.eval(&[datum, redeemer, make_ctx(vec![pkh])]).unwrap();
     assert!(result.failed());
     assert!(result.logs.iter().any(|l| l.contains("Wrong preimage")));
@@ -56,11 +60,11 @@ fn wrong_preimage() {
 #[test]
 fn missing_signer() {
     let Some(validator) = try_compile() else { return };
-    let secret = b"my secret";
-    let pkh = PubKeyHash { hash: vec![0xaa, 0xbb] };
-    let wrong = PubKeyHash { hash: vec![0xff] };
-    let datum = PreimageDatum { hash: builtins::sha2_256(secret), pkh }.to_data();
-    let redeemer = secret.to_vec().to_data();
+    let secret = ByteString::from_slice(b"my secret");
+    let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
+    let wrong = PubKeyHash { hash: ByteString::from_hex("ff") };
+    let datum = PreimageDatum { hash: builtins::sha2_256(&secret), pkh }.to_data();
+    let redeemer = secret.to_data();
     let result = validator.eval(&[datum, redeemer, make_ctx(vec![wrong])]).unwrap();
     assert!(result.failed());
     assert!(result.logs.iter().any(|l| l.contains("Not signed")));

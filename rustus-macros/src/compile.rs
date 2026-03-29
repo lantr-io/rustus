@@ -101,7 +101,7 @@ impl CompileCtx {
         let type_str = quote!(#rust_type).to_string().replace(' ', "");
         // Skip primitives and generic params
         match type_str.as_str() {
-            "bool" | "i64" | "i128" | "Vec<u8>" | "String" | "()" | "Data"
+            "bool" | "i64" | "i128" | "Vec<u8>" | "ByteString" | "String" | "()" | "Data"
             | "rustus_core::data::Data" | "BigInt" | "num_bigint::BigInt" => return,
             _ => {}
         }
@@ -129,7 +129,7 @@ impl CompileCtx {
             "i64" | "i128" | "BigInt" | "num_bigint::BigInt" | "rustus_core::num_bigint::BigInt" => {
                 quote! { rustus_core::sir_type::SIRType::Integer }
             }
-            "Vec<u8>" => quote! { rustus_core::sir_type::SIRType::ByteString },
+            "Vec<u8>" | "ByteString" | "rustus_core::bytestring::ByteString" => quote! { rustus_core::sir_type::SIRType::ByteString },
             "String" => quote! { rustus_core::sir_type::SIRType::String },
             "()" => quote! { rustus_core::sir_type::SIRType::Unit },
             "Data" | "rustus_core::data::Data" => quote! { rustus_core::sir_type::SIRType::Data },
@@ -204,7 +204,7 @@ fn rust_type_to_type_hint(ty: &syn::Type, generic_params: &[String]) -> TokenStr
         "i64" | "i128" | "BigInt" | "num_bigint::BigInt" | "rustus_core::num_bigint::BigInt" => {
             quote! { rustus_core::pre_sir::TypeHint::Integer }
         }
-        "Vec<u8>" => quote! { rustus_core::pre_sir::TypeHint::ByteString },
+        "Vec<u8>" | "ByteString" | "rustus_core::bytestring::ByteString" => quote! { rustus_core::pre_sir::TypeHint::ByteString },
         "String" => quote! { rustus_core::pre_sir::TypeHint::String },
         "()" => quote! { rustus_core::pre_sir::TypeHint::Unit },
         "Data" | "rustus_core::data::Data" => quote! { rustus_core::pre_sir::TypeHint::Data },

@@ -1,3 +1,4 @@
+pub mod bytestring;
 pub mod constant;
 pub mod data;
 pub mod default_fun;

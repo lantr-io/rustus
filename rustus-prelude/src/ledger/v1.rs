@@ -2,15 +2,16 @@
 //!
 //! Matches scalus names under `scalus.cardano.onchain.plutus.v1`.
 
+use rustus_core::bytestring::ByteString;
 use rustus_core::num_bigint::BigInt;
 
 use crate::list::List;
 
 // Type aliases matching scalus
-pub type Hash = Vec<u8>;
+pub type Hash = ByteString;
 pub type ValidatorHash = Hash;
-pub type PolicyId = Vec<u8>;
-pub type TokenName = Vec<u8>;
+pub type PolicyId = ByteString;
+pub type TokenName = ByteString;
 pub type Datum = rustus_core::data::Data;
 pub type DatumHash = Hash;
 pub type Redeemer = rustus_core::data::Data;
@@ -127,7 +128,7 @@ pub struct Value {
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v1.TxId")]
 pub struct TxId {
-    pub hash: Hash,
+    pub hash: ByteString,
 }
 
 /// TxOutRef: reference to a transaction output.
@@ -144,7 +145,7 @@ pub struct TxOutRef {
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v1.PubKeyHash", repr = "one_element")]
 pub struct PubKeyHash {
-    pub hash: Hash,
+    pub hash: ByteString,
 }
 
 /// Credential: either a public key or a script.

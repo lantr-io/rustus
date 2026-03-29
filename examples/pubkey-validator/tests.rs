@@ -4,6 +4,7 @@
 mod validator;
 use validator::OwnerDatum;
 
+use rustus_core::bytestring::ByteString;
 use rustus_core::data::{Data, ToData};
 use rustus_prelude::ledger::v1::*;
 use rustus_prelude::list::List;
@@ -18,10 +19,10 @@ fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
             valid_range: Interval::always(),
             signatories: List::from_vec(signatories),
             data: List::Nil,
-            id: TxId { hash: vec![0x00] },
+            id: TxId { hash: ByteString::from_hex("00") },
         },
         purpose: ScriptPurpose::Spending {
-            tx_out_ref: TxOutRef { id: TxId { hash: vec![0x00] }, idx: 0.into() },
+            tx_out_ref: TxOutRef { id: TxId { hash: ByteString::from_hex("00") }, idx: 0.into() },
         },
     }.to_data()
 }
@@ -33,7 +34,7 @@ fn try_compile() -> Option<rustus::Validator> {
 #[test]
 fn correct_signer() {
     let Some(validator) = try_compile() else { return };
-    let pkh = PubKeyHash { hash: vec![0xde, 0xad, 0xbe, 0xef] };
+    let pkh = PubKeyHash { hash: ByteString::from_hex("deadbeef") };
     let datum = OwnerDatum { owner: pkh.clone() }.to_data();
     let result = validator.eval(&[datum, Data::unit(), make_ctx(vec![pkh])]).unwrap();
     assert!(result.succeeded(), "Expected success: {:?}", result.error);
@@ -42,8 +43,8 @@ fn correct_signer() {
 #[test]
 fn wrong_signer() {
     let Some(validator) = try_compile() else { return };
-    let pkh = PubKeyHash { hash: vec![0xde, 0xad, 0xbe, 0xef] };
-    let wrong = PubKeyHash { hash: vec![0xca, 0xfe] };
+    let pkh = PubKeyHash { hash: ByteString::from_hex("deadbeef") };
+    let wrong = PubKeyHash { hash: ByteString::from_hex("cafe") };
     let datum = OwnerDatum { owner: pkh }.to_data();
     let result = validator.eval(&[datum, Data::unit(), make_ctx(vec![wrong])]).unwrap();
     assert!(result.failed());

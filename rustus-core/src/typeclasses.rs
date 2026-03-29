@@ -199,7 +199,7 @@ impl OnchainPartialOrd for crate::data::Data {
 
 /// Build a SIR Builtin with type `(T, T) -> Boolean` for a given builtin function.
 /// Used by both OnchainPartialEq and OnchainPartialOrd implementations.
-fn make_binary_builtin(fun: DefaultFun, operand_tp: SIRType) -> SIR {
+pub fn make_binary_builtin(fun: DefaultFun, operand_tp: SIRType) -> SIR {
     SIR::Builtin {
         builtin_fun: fun,
         tp: SIRType::Fun {

@@ -1,9 +1,10 @@
+use rustus_core::bytestring::ByteString;
 use rustus_core::data::{Data, ToData, FromData};
 use rustus_prelude::ledger::v1::PubKeyHash;
 
 fn main() {
     // PubKeyHash with one_element repr: should encode as just B(hash), not Constr(0, [B(hash)])
-    let pkh = PubKeyHash { hash: vec![0xde, 0xad, 0xbe, 0xef] };
+    let pkh = PubKeyHash { hash: ByteString::from_hex("deadbeef") };
 
     let data = pkh.to_data();
     println!("PubKeyHash.to_data() = {:?}", data);
