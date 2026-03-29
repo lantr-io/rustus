@@ -5,7 +5,7 @@
 /// - Nil:  "scalus.cardano.onchain.plutus.prelude.List$.Nil"
 /// - Cons: "scalus.cardano.onchain.plutus.prelude.List$.Cons"  (fields: head, tail)
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
-#[rustus(name = "scalus.cardano.onchain.plutus.prelude.List")]
+#[rustus(name = "scalus.cardano.onchain.plutus.prelude.List", repr = "list")]
 pub enum List<T> {
     Nil,
     Cons { head: T, tail: Box<List<T>> },
@@ -96,10 +96,10 @@ mod sir {
         }
     }
 
-    /// On-chain contains: uses Data equality (equalsData builtin).
-    /// TODO: make generic with TypeVar when #[compile] supports generic functions.
+    /// On-chain contains: uses typeclass equality.
+    /// SIR signature: (List<T>, T, (T, T) → Boolean) → Boolean
     #[rustus_macros::compile]
-    pub fn contains(list: List<Data>, elem: Data) -> bool {
+    pub fn contains<T: PartialEq>(list: List<T>, elem: T) -> bool {
         match list {
             List::Nil => false,
             List::Cons { head, tail } => {

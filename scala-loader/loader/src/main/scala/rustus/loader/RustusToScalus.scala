@@ -26,10 +26,10 @@ object RustusToScalus:
       stubTable(name) = DataDecl(
         name = rdecl.name,
         constructors = rdecl.constructors.map(rc =>
-          ConstrDecl(rc.name, Nil, rc.type_params.map(convertTypeVar), Nil, emptyAnns)
+          ConstrDecl(rc.name, Nil, rc.type_params.map(convertTypeVar), Nil, convertAnnotations(rc.annotations))
         ),
         typeParams = rdecl.type_params.map(convertTypeVar),
-        annotations = emptyAnns
+        annotations = convertAnnotations(rdecl.annotations)
       )
 
     // Pass 2: rebuild with resolved constructor params, using stubs for cross-refs
@@ -37,9 +37,9 @@ object RustusToScalus:
       rmodule.data_decls.map { (name, rdecl) =>
         name -> DataDecl(
           name = rdecl.name,
-          constructors = rdecl.constructors.map(rc => convertConstrDecl(rc, stubTable.toMap)),
+          constructors = rdecl.constructors.map(rc => convertConstrDecl(rc, stubTable.toMap, rdecl.annotations)),
           typeParams = rdecl.type_params.map(convertTypeVar),
-          annotations = emptyAnns
+          annotations = convertAnnotations(rdecl.annotations)
         )
       }
 
@@ -70,8 +70,14 @@ object RustusToScalus:
 
   private def convertConstrDecl(
       rc: RConstrDecl,
-      symbolTable: => Map[String, DataDecl]
+      symbolTable: => Map[String, DataDecl],
+      parentAnns: RAnnotationsDecl = RAnnotationsDecl(RSourcePos("", 0, 0, 0, 0))
   ): ConstrDecl =
+    // Merge parent DataDecl annotations (e.g. uplcRepr) into ConstrDecl,
+    // because Scalus looks for uplcRepr on ConstrDecl, not DataDecl.
+    val mergedAnns = rc.annotations.copy(
+      data = parentAnns.data ++ rc.annotations.data
+    )
     ConstrDecl(
       name = rc.name,
       params = rc.params.map(tb =>
@@ -79,7 +85,7 @@ object RustusToScalus:
       ),
       typeParams = rc.type_params.map(convertTypeVar),
       parentTypeArgs = rc.parent_type_args.map(t => convertSIRType(t, symbolTable)),
-      annotations = emptyAnns
+      annotations = convertAnnotations(mergedAnns)
     )
 
   // --- SIRType conversion ---
@@ -126,16 +132,16 @@ object RustusToScalus:
       symbolTable: Map[String, DataDecl]
   ): SIR =
     rsir match
-      case RSIR.Var(name, tp, _) =>
-        SIR.Var(name, convertSIRType(tp, symbolTable), emptyAnns)
+      case RSIR.Var(name, tp, anns) =>
+        SIR.Var(name, convertSIRType(tp, symbolTable), convertAnnotations(anns))
 
-      case RSIR.ExternalVar(moduleName, name, tp, _) =>
-        SIR.ExternalVar(moduleName, name, convertSIRType(tp, symbolTable), emptyAnns)
+      case RSIR.ExternalVar(moduleName, name, tp, anns) =>
+        SIR.ExternalVar(moduleName, name, convertSIRType(tp, symbolTable), convertAnnotations(anns))
 
-      case RSIR.Const(uplcConst, tp, _) =>
-        SIR.Const(convertConstant(uplcConst), convertSIRType(tp, symbolTable), emptyAnns)
+      case RSIR.Const(uplcConst, tp, anns) =>
+        SIR.Const(convertConstant(uplcConst), convertSIRType(tp, symbolTable), convertAnnotations(anns))
 
-      case RSIR.LamAbs(param, term, typeParams, _) =>
+      case RSIR.LamAbs(param, term, typeParams, anns) =>
         val paramVar = convertSIR(param, symbolTable) match
           case v: SIR.Var => v
           case other => throw new RuntimeException(s"LamAbs param must be Var, got: $other")
@@ -143,18 +149,18 @@ object RustusToScalus:
           param = paramVar,
           term = convertSIR(term, symbolTable),
           typeParams = typeParams.map(convertTypeVar),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.Apply(f, arg, tp, _) =>
+      case RSIR.Apply(f, arg, tp, anns) =>
         SIR.Apply(
           f = asAnnotated(convertSIR(f, symbolTable)),
           arg = asAnnotated(convertSIR(arg, symbolTable)),
           tp = convertSIRType(tp, symbolTable),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.Let(bindings, body, flags, _) =>
+      case RSIR.Let(bindings, body, flags, anns) =>
         val letFlags =
           if flags.is_rec && flags.is_lazy then SIR.LetFlags.Recursivity | SIR.LetFlags.Lazy
           else if flags.is_rec then SIR.LetFlags.Recursivity
@@ -166,53 +172,53 @@ object RustusToScalus:
           ),
           body = convertSIR(body, symbolTable),
           flags = letFlags,
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.Constr(name, data, args, tp, _) =>
+      case RSIR.Constr(name, data, args, tp, anns) =>
         val decl = convertDataDeclInline(data, symbolTable)
         SIR.Constr(
           name = name,
           data = decl,
           args = args.map(a => convertSIR(a, symbolTable)),
           tp = convertSIRType(tp, symbolTable),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.Match(scrutinee, cases, tp, _) =>
+      case RSIR.Match(scrutinee, cases, tp, anns) =>
         SIR.Match(
           scrutinee = asAnnotated(convertSIR(scrutinee, symbolTable)),
           cases = cases.map(c => convertCase(c, symbolTable)),
           tp = convertSIRType(tp, symbolTable),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.IfThenElse(cond, t, f, tp, _) =>
+      case RSIR.IfThenElse(cond, t, f, tp, anns) =>
         SIR.IfThenElse(
           cond = asAnnotated(convertSIR(cond, symbolTable)),
           t = asAnnotated(convertSIR(t, symbolTable)),
           f = asAnnotated(convertSIR(f, symbolTable)),
           tp = convertSIRType(tp, symbolTable),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
-      case RSIR.Builtin(builtinFun, tp, _) =>
+      case RSIR.Builtin(builtinFun, tp, anns) =>
         val bf = DefaultFun.valueOf(builtinFun)
-        SIR.Builtin(bf, convertSIRType(tp, symbolTable), emptyAnns)
+        SIR.Builtin(bf, convertSIRType(tp, symbolTable), convertAnnotations(anns))
 
-      case RSIR.Error(msg, _) =>
-        SIR.Error(asAnnotated(convertSIR(msg, symbolTable)), emptyAnns)
+      case RSIR.Error(msg, anns) =>
+        SIR.Error(asAnnotated(convertSIR(msg, symbolTable)), convertAnnotations(anns))
 
       case RSIR.Decl(data, term) =>
         val decl = convertDataDeclInline(data, symbolTable)
         SIR.Decl(decl, convertSIR(term, symbolTable))
 
-      case RSIR.Select(scrutinee, field, tp, _) =>
+      case RSIR.Select(scrutinee, field, tp, anns) =>
         SIR.Select(
           scrutinee = convertSIR(scrutinee, symbolTable),
           field = field,
           tp = convertSIRType(tp, symbolTable),
-          anns = emptyAnns
+          anns = convertAnnotations(anns)
         )
 
   // --- Helper conversions ---
@@ -221,7 +227,7 @@ object RustusToScalus:
     Case(
       pattern = convertPattern(rc.pattern, symbolTable),
       body = convertSIR(rc.body, symbolTable),
-      anns = emptyAnns
+      anns = convertAnnotations(rc.anns)
     )
 
   private def convertPattern(
@@ -275,9 +281,9 @@ object RustusToScalus:
       rd.name,
       DataDecl(
         name = rd.name,
-        constructors = rd.constructors.map(rc => convertConstrDecl(rc, symbolTable)),
+        constructors = rd.constructors.map(rc => convertConstrDecl(rc, symbolTable, rd.annotations)),
         typeParams = rd.type_params.map(convertTypeVar),
-        annotations = emptyAnns
+        annotations = convertAnnotations(rd.annotations)
       )
     )
 
@@ -296,3 +302,37 @@ object RustusToScalus:
         asAnnotated(term)
 
   private val emptyAnns = AnnotationsDecl(SIRPosition.empty)
+
+  /** Convert Rust annotations to Scalus AnnotationsDecl, preserving source positions and data map. */
+  private def convertAnnotations(rAnns: RustusJsonCodec.RAnnotationsDecl): AnnotationsDecl =
+    val pos = SIRPosition(
+      file = rAnns.pos.file,
+      startLine = rAnns.pos.start_line,
+      startColumn = rAnns.pos.start_column,
+      endLine = rAnns.pos.end_line,
+      endColumn = rAnns.pos.end_column
+    )
+    val data: Map[String, SIR] = rAnns.data.flatMap { (key, value) =>
+      convertAnnotationValue(value).map(sir => key -> sir)
+    }
+    AnnotationsDecl(pos = pos, comment = rAnns.comment, data = data)
+
+  /** Convert a JSON annotation value to SIR (supports Const entries like uplcRepr). */
+  private def convertAnnotationValue(v: Any): Option[SIR] =
+    v match
+      case m: Map[_, _] =>
+        val obj = m.asInstanceOf[Map[String, Any]]
+        obj.get("type") match
+          case Some("Const") =>
+            val uplcConst = obj.get("uplc_const") match
+              case Some(c) =>
+                val cObj = c.asInstanceOf[Map[String, Any]]
+                cObj("type").asInstanceOf[String] match
+                  case "String" => scalus.uplc.Constant.String(cObj("value").asInstanceOf[String])
+                  case "Integer" => scalus.uplc.Constant.Integer(BigInt(cObj("value").asInstanceOf[Number].longValue))
+                  case "Bool" => scalus.uplc.Constant.Bool(cObj("value").asInstanceOf[scala.Boolean])
+                  case _ => return None
+              case None => return None
+            Some(SIR.Const(uplcConst, SIRType.String, emptyAnns))
+          case _ => None
+      case _ => None

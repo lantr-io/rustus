@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 rustus-core = { path = "../rustus-core" }
 rustus-macros = { path = "../rustus-macros" }
+sha2 = "0.10"
+sha3 = "0.10"
+blake2 = "0.10"

@@ -1,7 +1,9 @@
 pub mod constant;
 pub mod data;
 pub mod default_fun;
+pub mod lower;
 pub mod module;
+pub mod pre_sir;
 pub mod registry;
 pub mod sir;
 pub mod sir_type;

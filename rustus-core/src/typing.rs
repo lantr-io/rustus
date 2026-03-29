@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use crate::sir::{Case, Pattern, SIR};
-use crate::sir_type::{DataDecl, SIRType, TypeVar};
+use crate::sir_type::{DataDecl, SIRType};
 
 // ---------------------------------------------------------------------------
 // TypeVar renumbering: assign globally unique opt_ids across all DataDecls
@@ -157,41 +157,7 @@ fn make_error_no_loc(kind: TypingErrorKind) -> TypingError {
     }
 }
 
-/// Type environment: maps variable names to their SIR types.
-struct TypeEnv {
-    scopes: Vec<HashMap<String, SIRType>>,
-}
-
-impl TypeEnv {
-    fn new() -> Self {
-        TypeEnv {
-            scopes: vec![HashMap::new()],
-        }
-    }
-
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    fn insert(&mut self, name: String, tp: SIRType) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, tp);
-        }
-    }
-
-    fn lookup(&self, name: &str) -> Option<&SIRType> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(tp) = scope.get(name) {
-                return Some(tp);
-            }
-        }
-        None
-    }
-}
+use crate::sir_type::TypeEnv;
 
 /// Run the typing pass on a SIR tree, resolving all Unresolved types.
 pub fn type_sir(
@@ -220,7 +186,7 @@ pub fn verify_complete(sir: &SIR) -> Result<(), Vec<TypingError>> {
 }
 
 /// Get the type of a SIR node.
-fn sir_type(sir: &SIR) -> SIRType {
+pub fn sir_type(sir: &SIR) -> SIRType {
     match sir {
         SIR::Var { tp, .. } => tp.clone(),
         SIR::ExternalVar { tp, .. } => tp.clone(),
@@ -289,9 +255,6 @@ fn type_node(
         SIR::Apply { f, arg, tp, anns, .. } => {
             type_node(f, env, st, errors);
             type_node(arg, env, st, errors);
-
-            // Resolve equality builtins based on operand type
-            resolve_equality_builtin(f, arg);
 
             if *tp == SIRType::Unresolved {
                 let f_tp = sir_type(f);
@@ -475,88 +438,6 @@ fn type_case(
 
     type_node(&mut case.body, env, st, errors);
     env.pop_scope();
-}
-
-/// Build a substitution map from a type's type_args and its DataDecl's type_params.
-/// Fill in types for fromData/toData Apply nodes using the declared binding type.
-fn resolve_data_conversion_type(sir: &mut SIR, declared_tp: &SIRType) {
-    if let SIR::Apply { f, tp, anns, .. } = sir {
-        let is_from_data = anns.data.contains_key("fromData");
-        let is_to_data = anns.data.contains_key("toData");
-        if is_from_data {
-            // Apply tp = target type
-            if *tp == SIRType::Unresolved {
-                *tp = declared_tp.clone();
-            }
-            // ExternalVar type = Fun(Data, target)
-            if let SIR::ExternalVar { tp: f_tp, .. } = f.as_mut() {
-                *f_tp = SIRType::Fun {
-                    from: Box::new(SIRType::Data),
-                    to: Box::new(declared_tp.clone()),
-                };
-            }
-        } else if is_to_data {
-            // Apply tp = Data
-            if *tp == SIRType::Unresolved {
-                *tp = SIRType::Data;
-            }
-            // ExternalVar type = Fun(source, Data)
-            if let SIR::ExternalVar { tp: f_tp, .. } = f.as_mut() {
-                *f_tp = SIRType::Fun {
-                    from: Box::new(declared_tp.clone()),
-                    to: Box::new(SIRType::Data),
-                };
-            }
-        }
-    }
-}
-
-/// Resolve `==` builtin: if we see Apply(Apply(Builtin(EqualsData, Unresolved→...), arg), _),
-/// replace the builtin with the correct Equals* based on arg type.
-fn resolve_equality_builtin(f: &mut SIR, arg: &SIR) {
-    // f is Apply(Builtin(EqualsData), left_arg) — we need to reach inside
-    if let SIR::Apply { f: inner_f, arg: left_arg, tp: partial_tp, .. } = f {
-        if let SIR::Builtin { builtin_fun, tp: builtin_tp, .. } = inner_f.as_mut() {
-            if *builtin_fun == crate::default_fun::DefaultFun::EqualsData {
-                if let SIRType::Fun { from, .. } = builtin_tp {
-                    if **from == SIRType::Unresolved {
-                        // Determine operand type from the left arg
-                        let arg_tp = sir_type(left_arg);
-                        let (resolved_builtin, resolved_operand_tp) = match &arg_tp {
-                            SIRType::Integer => (
-                                crate::default_fun::DefaultFun::EqualsInteger,
-                                SIRType::Integer,
-                            ),
-                            SIRType::ByteString => (
-                                crate::default_fun::DefaultFun::EqualsByteString,
-                                SIRType::ByteString,
-                            ),
-                            SIRType::String => (
-                                crate::default_fun::DefaultFun::EqualsByteString,
-                                SIRType::String,
-                            ),
-                            _ => (
-                                crate::default_fun::DefaultFun::EqualsData,
-                                SIRType::Data,
-                            ),
-                        };
-                        *builtin_fun = resolved_builtin;
-                        *builtin_tp = SIRType::Fun {
-                            from: Box::new(resolved_operand_tp.clone()),
-                            to: Box::new(SIRType::Fun {
-                                from: Box::new(resolved_operand_tp.clone()),
-                                to: Box::new(SIRType::Boolean),
-                            }),
-                        };
-                        *partial_tp = SIRType::Fun {
-                            from: Box::new(resolved_operand_tp),
-                            to: Box::new(SIRType::Boolean),
-                        };
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn build_substitution(

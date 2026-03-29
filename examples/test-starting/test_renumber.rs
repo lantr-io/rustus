@@ -1,6 +1,3 @@
-use rustus_core::num_bigint::BigInt;
-use rustus_prelude::List;
-
 // A second generic type to test ID uniqueness
 #[derive(Debug, Clone, PartialEq, rustus::ToData, rustus::FromData)]
 #[rustus(name = "test.Pair")]

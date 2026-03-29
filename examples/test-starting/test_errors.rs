@@ -1,6 +1,5 @@
 use rustus_core::num_bigint::BigInt;
 use rustus_core::data::Data;
-use rustus_prelude::List;
 
 // A helper that exists in Rust but is NOT registered with #[compile]
 fn my_helper(x: BigInt) -> BigInt {

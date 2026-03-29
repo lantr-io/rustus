@@ -19,12 +19,23 @@ pub struct PreSirEntry {
 
 inventory::collect!(PreSirEntry);
 
+/// A typeclass bound on a generic function parameter.
+#[derive(Debug, Clone)]
+pub struct TypeclassBound {
+    /// The typeclass name (e.g., "PartialEq")
+    pub typeclass: String,
+    /// Index of the argument that determines the concrete type for this bound
+    pub elem_arg_index: usize,
+}
+
 /// Registered function info for cross-module resolution.
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub module_name: String,
     pub fn_name: String,
     pub tp: SIRType,
+    /// Typeclass bounds from generic params (e.g., T: PartialEq)
+    pub typeclass_bounds: Vec<TypeclassBound>,
 }
 
 pub struct ResolutionContext {
@@ -60,11 +71,24 @@ impl ResolutionContext {
         module: Option<&str>,
         tp: SIRType,
     ) {
+        self.pre_register_function_with_bounds(rust_name, sir_name, module, tp, vec![]);
+    }
+
+    /// Pre-register a function with typeclass bounds.
+    pub fn pre_register_function_with_bounds(
+        &mut self,
+        rust_name: &str,
+        sir_name: &str,
+        module: Option<&str>,
+        tp: SIRType,
+        typeclass_bounds: Vec<TypeclassBound>,
+    ) {
         let module_name = module.unwrap_or("").to_string();
         let fdef = FunctionDef {
             module_name,
             fn_name: sir_name.to_string(),
             tp,
+            typeclass_bounds,
         };
         self.functions.insert(rust_name.to_string(), fdef.clone());
         if rust_name != sir_name {
@@ -81,10 +105,15 @@ impl ResolutionContext {
         tp: SIRType,
         value: SIR,
     ) {
+        // Preserve typeclass_bounds from pre-registration if they exist
+        let existing_bounds = self.functions.get(rust_path)
+            .map(|f| f.typeclass_bounds.clone())
+            .unwrap_or_default();
         let fdef = FunctionDef {
             module_name: module_name.to_string(),
             fn_name: fn_name.to_string(),
             tp: tp.clone(),
+            typeclass_bounds: existing_bounds,
         };
         // Register under both Rust path and SIR name for lookup
         self.functions.insert(rust_path.to_string(), fdef.clone());
@@ -109,17 +138,18 @@ impl ResolutionContext {
         });
     }
 
-    /// Resolve a function call by Rust path (e.g. "List::head").
-    /// Returns ExternalVar if found, or Var as fallback.
-    /// Resolve a function call by Rust path (e.g. "list::head").
-    /// Tries full path first, then just the function name part.
-    /// Returns ExternalVar if found, or Var as fallback.
-    pub fn resolve_call(&self, rust_path: &str, fallback_tp: SIRType) -> SIR {
-        // Try full rust path first, then just the function name
-        let fdef = self.functions.get(rust_path).or_else(|| {
+    /// Look up a function by Rust path. Tries full path, then just the name part.
+    pub fn lookup_function(&self, rust_path: &str) -> Option<&FunctionDef> {
+        self.functions.get(rust_path).or_else(|| {
             let fn_part = rust_path.rsplit("::").next().unwrap_or(rust_path);
             self.functions.get(fn_part)
-        });
+        })
+    }
+
+    /// Resolve a function call by Rust path (e.g. "list::head").
+    /// Tries full path first, then just the function name part.
+    pub fn resolve_call(&self, rust_path: &str, fallback_tp: SIRType) -> SIR {
+        let fdef = self.lookup_function(rust_path);
 
         if let Some(fdef) = fdef {
             let full_name = if fdef.module_name.is_empty() {

@@ -122,6 +122,43 @@ impl SIRType {
     }
 }
 
+/// Scoped type environment: maps variable names to their SIR types.
+/// Used by both the lowering pass and the typing pass.
+pub struct TypeEnv {
+    scopes: Vec<std::collections::HashMap<String, SIRType>>,
+}
+
+impl TypeEnv {
+    pub fn new() -> Self {
+        TypeEnv {
+            scopes: vec![std::collections::HashMap::new()],
+        }
+    }
+
+    pub fn push_scope(&mut self) {
+        self.scopes.push(std::collections::HashMap::new());
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    pub fn insert(&mut self, name: String, tp: SIRType) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, tp);
+        }
+    }
+
+    pub fn lookup(&self, name: &str) -> Option<&SIRType> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(tp) = scope.get(name) {
+                return Some(tp);
+            }
+        }
+        None
+    }
+}
+
 /// Trait for Rust types that have a corresponding SIR type representation.
 pub trait HasSIRType {
     /// Returns the SIRType for this Rust type.

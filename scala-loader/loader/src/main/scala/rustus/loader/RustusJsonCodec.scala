@@ -18,7 +18,8 @@ object RustusJsonCodec:
 
   case class RAnnotationsDecl(
       pos: RSourcePos,
-      comment: Option[String] = None
+      comment: Option[String] = None,
+      data: Map[String, Any] = Map.empty
   )
 
   case class RTypeBinding(
@@ -154,7 +155,6 @@ object RustusJsonCodec:
   // since serde uses {"type": "Variant", ...fields...} format.
 
   given JsonValueCodec[RSourcePos] = JsonCodecMaker.make
-  given JsonValueCodec[RAnnotationsDecl] = JsonCodecMaker.make
   given JsonValueCodec[RTypeVar] = JsonCodecMaker.make
   given JsonValueCodec[RLetFlags] = JsonCodecMaker.make
 
@@ -313,7 +313,10 @@ object RustusJsonCodec:
       ),
       comment = obj.get("comment").flatMap(v =>
         if v == null then None else Some(v.asInstanceOf[String])
-      )
+      ),
+      data = obj.get("data") match
+        case Some(m: Map[_, _]) => m.asInstanceOf[Map[String, Any]]
+        case _ => Map.empty
     )
 
   private def parseTypeVar(v: Any): RTypeVar =
@@ -493,3 +496,77 @@ object RustusJsonCodec:
           anns = parseAnnotationsDecl(obj("anns"))
         )
       case other => throw new RuntimeException(s"Unknown SIR type: $other")
+
+  // --- Data parsing for eval() arguments ---
+
+  /** Parse a Rust Data enum value from a generic JSON map.
+    * Matches the serde format from rustus-core/src/data.rs:
+    *   Constr { tag, args }, Map { values }, List { values }, I { value }, B { value }
+    */
+  def parseRustusData(v: Any): scalus.uplc.builtin.Data =
+    import scalus.cardano.onchain.plutus.prelude.{List => ScalusList}
+    val obj = v.asInstanceOf[Map[String, Any]]
+    obj("type").asInstanceOf[String] match
+      case "Constr" =>
+        val tag = obj("tag").asInstanceOf[Number].longValue
+        val args = obj("args").asInstanceOf[List[Any]].map(parseRustusData)
+        scalus.uplc.builtin.Data.Constr(tag, ScalusList.from(args))
+      case "I" =>
+        // num-bigint serde serializes BigInt as [sign, [digit, ...]]
+        // where sign: 0=NoSign, 1=Plus, 2=Minus and digits are u32 values
+        val value = obj("value") match
+          case s: String => BigInt(s)
+          case n: Number => BigInt(n.longValue)
+          case signAndDigits: List[_] =>
+            val parts = signAndDigits.asInstanceOf[List[Any]]
+            val sign = parts(0).asInstanceOf[Number].intValue
+            val digits = parts(1).asInstanceOf[List[Any]].map(_.asInstanceOf[Number].longValue)
+            if digits.isEmpty then BigInt(0)
+            else
+              var result = BigInt(0)
+              for (d, i) <- digits.zipWithIndex do
+                result = result + (BigInt(d) << (32 * i))
+              if sign == 2 then -result else result
+          case other => throw new RuntimeException(s"Unexpected I value: $other")
+        scalus.uplc.builtin.Data.I(value)
+      case "B" =>
+        val bytes = obj("value").asInstanceOf[List[Any]].map(_.asInstanceOf[Number].byteValue).toArray
+        scalus.uplc.builtin.Data.B(scalus.builtin.ByteString.fromArray(bytes))
+      case "Map" =>
+        val pairs = obj("values").asInstanceOf[List[Any]].map { pair =>
+          val arr = pair.asInstanceOf[List[Any]]
+          (parseRustusData(arr(0)), parseRustusData(arr(1)))
+        }
+        scalus.uplc.builtin.Data.Map(ScalusList.from(pairs))
+      case "List" =>
+        val items = obj("values").asInstanceOf[List[Any]].map(parseRustusData)
+        scalus.uplc.builtin.Data.List(ScalusList.from(items))
+      case other => throw new RuntimeException(s"Unknown Data type: $other")
+
+  // --- Codec for List[Any] (generic JSON array) ---
+  given anyListCodec: JsonValueCodec[List[Any]] = new JsonValueCodec[List[Any]]:
+    def nullValue: List[Any] = Nil
+    def decodeValue(in: JsonReader, default: List[Any]): List[Any] =
+      import scala.collection.mutable.ListBuffer
+      val buf = ListBuffer[Any]()
+      if in.isNextToken('[') then
+        if !in.isNextToken(']') then
+          in.rollbackToken()
+          while {
+            buf += readValue(in)
+            in.isNextToken(',')
+          } do ()
+      buf.toList
+    def encodeValue(x: List[Any], out: JsonWriter): scala.Unit =
+      throw new UnsupportedOperationException("Encoding not needed")
+
+  // --- EvalResult JSON encoding ---
+  case class EvalResultJson(
+      success: scala.Boolean,
+      cpu: Long,
+      mem: Long,
+      logs: List[String],
+      error: Option[String]
+  )
+
+  given evalResultCodec: JsonValueCodec[EvalResultJson] = JsonCodecMaker.make

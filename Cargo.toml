@@ -1,5 +1,5 @@
 [workspace]
-members = ["rustus-core", "rustus-macros", "rustus-prelude"]
+members = ["rustus-core", "rustus-macros", "rustus-prelude", "rustus-jvm"]
 resolver = "3"
 
 [package]
@@ -11,6 +11,7 @@ edition = "2024"
 rustus-core = { path = "rustus-core" }
 rustus-macros = { path = "rustus-macros" }
 rustus-prelude = { path = "rustus-prelude" }
+rustus-jvm = { path = "rustus-jvm" }
 serde_json = "1"
 
 # --- Examples: test-starting (unsorted dev tests) ---
@@ -61,6 +62,10 @@ path = "examples/test-starting/test_repr.rs"
 [[example]]
 name = "test_typeclass"
 path = "examples/test-starting/test_typeclass.rs"
+
+[[example]]
+name = "test_functional_typeclass"
+path = "examples/test-starting/test_functional_typeclass.rs"
 
 # --- Examples: real validators ---
 [[example]]

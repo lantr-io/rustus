@@ -1,4 +1,3 @@
-use rustus::data::Data;
 use rustus::num_bigint::BigInt;
 
 #[derive(Debug, Clone, PartialEq, rustus::ToData, rustus::FromData)]

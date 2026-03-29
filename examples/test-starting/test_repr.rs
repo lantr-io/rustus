@@ -10,7 +10,7 @@ fn main() {
 
     // Should be B([de, ad, be, ef]), NOT Constr(0, [B([de, ad, be, ef])])
     match &data {
-        Data::B { value } => println!("OK: raw ByteString, no Constr wrapper"),
+        Data::B { value: _ } => println!("OK: raw ByteString, no Constr wrapper"),
         Data::Constr { .. } => println!("WRONG: has Constr wrapper (one_element not working)"),
         other => println!("WRONG: unexpected {:?}", other),
     }

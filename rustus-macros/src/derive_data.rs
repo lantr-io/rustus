@@ -45,14 +45,6 @@ impl GenericsInfo {
         self.param_idents.is_empty()
     }
 
-    /// Check if a Rust type is one of our type params. Returns index if so.
-    fn find_type_param(&self, ty: &syn::Type) -> Option<usize> {
-        let type_str = quote!(#ty).to_string().replace(' ', "");
-        self.param_idents
-            .iter()
-            .position(|p| p.to_string() == type_str)
-    }
-
     /// Generate TypeVar tokens for DataDecl type_params field
     fn type_var_decls(&self) -> Vec<TokenStream2> {
         self.sir_names
@@ -109,17 +101,27 @@ pub fn derive_to_data_impl(input: TokenStream) -> TokenStream {
     let rattrs = parse_rustus_attrs(&input.attrs);
     let sir_name = rattrs.name.unwrap_or_else(|| name_str.clone());
     let is_one_element = rattrs.repr.as_deref() == Some("one_element");
+    let is_list = rattrs.repr.as_deref() == Some("list");
     let ginfo = GenericsInfo::from_generics(&input.generics);
 
     let (to_data_impl, has_sir_type_impl) = match &input.data {
         Data::Enum(data_enum) => {
-            let to_data_arms = gen_enum_to_data_arms(name, data_enum);
+            let to_data_arms = if is_list {
+                gen_list_to_data_body(name, data_enum)
+            } else {
+                gen_enum_to_data_arms(name, data_enum)
+            };
             let sir_type_impl = gen_enum_has_sir_type(name, &sir_name, data_enum, &ginfo);
             (to_data_arms, sir_type_impl)
         }
         Data::Struct(data_struct) => {
-            let to_data_body = gen_struct_to_data_body(data_struct, is_one_element);
-            let sir_type_impl = gen_struct_has_sir_type(name, &sir_name, data_struct, &ginfo);
+            let is_map = rattrs.repr.as_deref() == Some("map");
+            let to_data_body = if is_map {
+                gen_map_to_data_body(name, data_struct)
+            } else {
+                gen_struct_to_data_body(data_struct, is_one_element)
+            };
+            let sir_type_impl = gen_struct_has_sir_type(name, &sir_name, data_struct, &ginfo, is_one_element, is_map);
             (to_data_body, sir_type_impl)
         }
         Data::Union(_) => {
@@ -210,10 +212,22 @@ pub fn derive_from_data_impl(input: TokenStream) -> TokenStream {
     let ginfo = GenericsInfo::from_generics(&input.generics);
     let rattrs = parse_rustus_attrs(&input.attrs);
     let is_one_element = rattrs.repr.as_deref() == Some("one_element");
+    let is_list = rattrs.repr.as_deref() == Some("list");
 
     let from_data_body = match &input.data {
-        Data::Enum(data_enum) => gen_enum_from_data_body(name, data_enum),
-        Data::Struct(data_struct) => gen_struct_from_data_body(name, data_struct, is_one_element),
+        Data::Enum(data_enum) => if is_list {
+            gen_list_from_data_body(name)
+        } else {
+            gen_enum_from_data_body(name, data_enum)
+        },
+        Data::Struct(data_struct) => {
+            let is_map = rattrs.repr.as_deref() == Some("map");
+            if is_map {
+                gen_map_from_data_body(name, data_struct)
+            } else {
+                gen_struct_from_data_body(name, data_struct, is_one_element)
+            }
+        },
         Data::Union(_) => {
             return syn::Error::new_spanned(name, "FromData cannot be derived for unions")
                 .to_compile_error()
@@ -240,6 +254,114 @@ pub fn derive_from_data_impl(input: TokenStream) -> TokenStream {
     };
 
     expanded.into()
+}
+
+// --- Map repr: struct with single Vec<(K, V)> field → Data::Map ---
+
+fn gen_map_to_data_body(_name: &syn::Ident, data_struct: &syn::DataStruct) -> TokenStream2 {
+    // Walk the List<Pair<K, V>> field directly, encoding each pair's fst/snd.
+    let field = data_struct.fields.iter().next().expect("map repr requires at least one field");
+    let fname = &field.ident;
+    quote! {
+        {
+            let mut pairs = vec![];
+            let mut current = &self.#fname;
+            loop {
+                match current {
+                    // Nil variant (tag 0, no fields)
+                    list @ _ if {
+                        let d = rustus_core::data::ToData::to_data(list);
+                        matches!(d, rustus_core::data::Data::List { ref values } if values.is_empty())
+                    } => break,
+                    _ => {
+                        // Cons variant — encode the whole list and extract pairs from Data::List
+                        let list_data = rustus_core::data::ToData::to_data(&self.#fname);
+                        if let rustus_core::data::Data::List { values } = list_data {
+                            for item in values {
+                                if let rustus_core::data::Data::Constr { tag: 0, args } = item {
+                                    let mut it = args.into_iter();
+                                    let k = it.next().unwrap_or(rustus_core::data::Data::unit());
+                                    let v = it.next().unwrap_or(rustus_core::data::Data::unit());
+                                    pairs.push((k, v));
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            rustus_core::data::Data::Map { values: pairs }
+        }
+    }
+}
+
+fn gen_map_from_data_body(name: &syn::Ident, data_struct: &syn::DataStruct) -> TokenStream2 {
+    let name_str = name.to_string();
+    let field = data_struct.fields.iter().next().expect("map repr requires at least one field");
+    let fname = &field.ident;
+    quote! {
+        match data {
+            rustus_core::data::Data::Map { values } => {
+                // Convert Data::Map pairs back through Data::List of Constr(0, [k, v])
+                // to decode via the inner field's FromData
+                let list_items: Vec<rustus_core::data::Data> = values.iter().map(|(k, v)| {
+                    rustus_core::data::Data::Constr {
+                        tag: 0,
+                        args: vec![k.clone(), v.clone()],
+                    }
+                }).collect();
+                let list_data = rustus_core::data::Data::List { values: list_items };
+                let #fname = rustus_core::data::FromData::from_data(&list_data)?;
+                Ok(#name { #fname })
+            }
+            _ => Err(rustus_core::data::DataError::UnexpectedVariant {
+                expected: concat!(#name_str, " (Data::Map)"),
+            }),
+        }
+    }
+}
+
+// --- List repr: Nil/Cons enum ↔ Data::List ---
+
+fn gen_list_from_data_body(name: &syn::Ident) -> TokenStream2 {
+    // Data::List { values } → build Cons chain in reverse
+    quote! {
+        match data {
+            rustus_core::data::Data::List { values } => {
+                let mut result = #name::Nil;
+                for item in values.iter().rev() {
+                    result = #name::Cons {
+                        head: rustus_core::data::FromData::from_data(item)?,
+                        tail: Box::new(result),
+                    };
+                }
+                Ok(result)
+            }
+            _ => Err(rustus_core::data::DataError::UnexpectedVariant {
+                expected: "List (Data::List)",
+            }),
+        }
+    }
+}
+
+fn gen_list_to_data_body(name: &syn::Ident, _data_enum: &syn::DataEnum) -> TokenStream2 {
+    // Walk the Cons chain and collect elements into Data::List
+    quote! {
+        {
+            let mut items = vec![];
+            let mut current = self;
+            loop {
+                match current {
+                    #name::Nil => break,
+                    #name::Cons { head, tail } => {
+                        items.push(rustus_core::data::ToData::to_data(head));
+                        current = tail;
+                    }
+                }
+            }
+            rustus_core::data::Data::List { values: items }
+        }
+    }
 }
 
 // --- Enum ToData ---
@@ -549,11 +671,42 @@ fn gen_struct_has_sir_type(
     sir_name: &str,
     data_struct: &syn::DataStruct,
     ginfo: &GenericsInfo,
+    is_one_element: bool,
+    is_map: bool,
 ) -> TokenStream2 {
     let tv_map = ginfo.type_var_sir_types();
     let type_var_decls = ginfo.type_var_decls();
     let type_app_args = ginfo.type_application_args();
     let params = gen_type_bindings_for_fields_generic(&data_struct.fields, &tv_map);
+
+    // UplcRepr annotation: maps repr attribute to Scalus representation name
+    let uplc_repr_name = if is_one_element {
+        Some("ProductCaseOneElement")
+    } else if is_map {
+        Some("Map")
+    } else {
+        None
+    };
+    let decl_annotations = if let Some(repr_name) = uplc_repr_name {
+        quote! {
+            {
+                let mut __anns = rustus_core::module::AnnotationsDecl::empty();
+                __anns.data.insert(
+                    "uplcRepr".to_string(),
+                    rustus_core::sir::SIR::Const {
+                        uplc_const: rustus_core::constant::UplcConstant::String {
+                            value: #repr_name.to_string(),
+                        },
+                        tp: rustus_core::sir_type::SIRType::String,
+                        anns: rustus_core::module::AnnotationsDecl::empty(),
+                    },
+                );
+                __anns
+            }
+        }
+    } else {
+        quote! { rustus_core::module::AnnotationsDecl::empty() }
+    };
 
     if ginfo.is_empty() {
         quote! {
@@ -578,7 +731,7 @@ fn gen_struct_has_sir_type(
                             }
                         ],
                         type_params: vec![],
-                        annotations: rustus_core::module::AnnotationsDecl::empty(),
+                        annotations: #decl_annotations,
                     })
                 }
             }
@@ -607,7 +760,7 @@ fn gen_struct_has_sir_type(
                             }
                         ],
                         type_params: vec![#(#type_var_decls),*],
-                        annotations: rustus_core::module::AnnotationsDecl::empty(),
+                        annotations: #decl_annotations,
                     })
                 }
             }
@@ -810,17 +963,6 @@ fn parse_rustus_attrs(attrs: &[syn::Attribute]) -> RustusAttrs {
         }
     }
     result
-}
-
-fn parse_rustus_name_attr(attrs: &[syn::Attribute]) -> Option<String> {
-    parse_rustus_attrs(attrs).name
-}
-
-// --- Type helpers ---
-
-/// Map a Rust type to SIRType (non-generic mode, for use in #[compile] etc.)
-pub fn rust_type_to_sir_type(ty: &syn::Type) -> TokenStream2 {
-    rust_type_to_sir_type_generic(ty, &[])
 }
 
 /// If ty is `Box<T>`, return the inner T.

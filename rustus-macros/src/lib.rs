@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 mod compile;
 mod derive_data;
+mod functional_typeclass;
 mod rustus_module;
 
 use proc_macro::TokenStream;
@@ -26,4 +27,13 @@ pub fn compile(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn rustus_module(attr: TokenStream, item: TokenStream) -> TokenStream {
     rustus_module::rustus_module_impl(attr, item)
+}
+
+/// Register a trait as a functional typeclass for on-chain compilation.
+/// Usage: `#[rustus::functional_typeclass(name = "scalus...Eq", method = "binary_predicate")]`
+///
+/// method types: "binary_predicate" → (A, A) -> Boolean, "binary_order" → (A, A) -> Order
+#[proc_macro_attribute]
+pub fn functional_typeclass(attr: TokenStream, item: TokenStream) -> TokenStream {
+    functional_typeclass::functional_typeclass_impl(attr, item)
 }

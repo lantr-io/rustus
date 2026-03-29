@@ -12,9 +12,16 @@ val commonSettings = Seq(
 lazy val loader = project.in(file("loader")).settings(
   commonSettings,
   name := "rustus-scala-loader",
+  assembly / mainClass := Some("rustus.loader.Main"),
+  assembly / assemblyJarName := "rustus-scalus.jar",
+  assembly / assemblyMergeStrategy := {
+    case PathList("META-INF", _*) => MergeStrategy.discard
+    case _ => MergeStrategy.first
+  },
   libraryDependencies ++= Seq(
     "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % "2.38.8",
     "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % "2.38.8" % "compile",
+    "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
   ),
 )
 

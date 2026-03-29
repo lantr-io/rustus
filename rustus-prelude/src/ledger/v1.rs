@@ -17,6 +17,100 @@ pub type Redeemer = rustus_core::data::Data;
 pub type ScriptHash = Hash;
 pub type PosixTime = BigInt;
 pub type Lovelace = BigInt;
+pub type Closure = bool;
+pub type PosixTimeRange = Interval;
+
+/// IntervalBoundType — NegInf, Finite(time), PosInf.
+/// scalus name: `scalus.cardano.onchain.plutus.v1.IntervalBoundType`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v1.IntervalBoundType")]
+pub enum IntervalBoundType {
+    NegInf,
+    Finite { time: PosixTime },
+    PosInf,
+}
+
+/// IntervalBound — a bound (lower or upper) of an Interval.
+/// scalus name: `scalus.cardano.onchain.plutus.v1.IntervalBound`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v1.IntervalBound")]
+pub struct IntervalBound {
+    pub bound_type: IntervalBoundType,
+    pub is_inclusive: Closure,
+}
+
+impl IntervalBound {
+    pub fn neg_inf() -> Self {
+        IntervalBound {
+            bound_type: IntervalBoundType::NegInf,
+            is_inclusive: true,
+        }
+    }
+
+    pub fn pos_inf() -> Self {
+        IntervalBound {
+            bound_type: IntervalBoundType::PosInf,
+            is_inclusive: true,
+        }
+    }
+
+    pub fn finite_inclusive(time: PosixTime) -> Self {
+        IntervalBound {
+            bound_type: IntervalBoundType::Finite { time },
+            is_inclusive: true,
+        }
+    }
+
+    pub fn finite_exclusive(time: PosixTime) -> Self {
+        IntervalBound {
+            bound_type: IntervalBoundType::Finite { time },
+            is_inclusive: false,
+        }
+    }
+}
+
+/// Interval — a time interval with lower and upper bounds.
+/// scalus name: `scalus.cardano.onchain.plutus.v1.Interval`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v1.Interval")]
+pub struct Interval {
+    pub from: IntervalBound,
+    pub to: IntervalBound,
+}
+
+impl Interval {
+    /// (-∞, +∞) — always valid
+    pub fn always() -> Self {
+        Interval {
+            from: IntervalBound::neg_inf(),
+            to: IntervalBound::pos_inf(),
+        }
+    }
+
+    /// Empty interval — never valid
+    pub fn never() -> Self {
+        Interval {
+            from: IntervalBound::pos_inf(),
+            to: IntervalBound::neg_inf(),
+        }
+    }
+
+    /// [time, +∞)
+    pub fn after(time: PosixTime) -> Self {
+        Interval {
+            from: IntervalBound::finite_inclusive(time),
+            to: IntervalBound::pos_inf(),
+        }
+    }
+
+    /// (-∞, time]
+    pub fn before(time: PosixTime) -> Self {
+        Interval {
+            from: IntervalBound::neg_inf(),
+            to: IntervalBound::finite_inclusive(time),
+        }
+    }
+}
 
 /// Value: a map from PolicyId to (map from TokenName to quantity).
 ///
@@ -121,8 +215,8 @@ pub struct TxInfo {
     pub mint: Value,
     pub dcert: List<Datum>,
     pub withdrawals: List<Datum>,
-    pub valid_range: Datum,
-    pub signatories: List<Datum>,  // List<PubKeyHash> on-chain
+    pub valid_range: PosixTimeRange,
+    pub signatories: List<PubKeyHash>,
     pub data: List<Datum>,
     pub id: TxId,
 }

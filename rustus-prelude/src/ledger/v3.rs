@@ -5,7 +5,7 @@
 
 use rustus_core::num_bigint::BigInt;
 
-use super::v1::{self, Credential, DatumHash, Hash, Lovelace, PolicyId, PubKeyHash, TxId, TxOutRef, Value};
+use super::v1::{self, Credential, DatumHash, Hash, Interval, Lovelace, PolicyId, PubKeyHash, TxId, TxOutRef, Value};
 use crate::list::List;
 use crate::option::Option;
 
@@ -80,8 +80,8 @@ pub struct TxInfo {
     pub mint: Value,
     pub certificates: List<Datum>,
     pub withdrawals: Datum,
-    pub valid_range: Datum,
-    pub signatories: List<Datum>,  // List<PubKeyHash> on-chain, but PubKeyHash = Data
+    pub valid_range: Interval,
+    pub signatories: List<PubKeyHash>,
     pub redeemers: Datum,
     pub data: Datum,
     pub id: TxId,

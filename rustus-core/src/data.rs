@@ -110,7 +110,6 @@ impl FromData for i64 {
     fn from_data(data: &Data) -> Result<Self, DataError> {
         match data {
             Data::I { value } => {
-                use num_bigint::ToBigInt;
                 Ok(i64::try_from(value).map_err(|_| DataError::UnexpectedVariant {
                     expected: "I (fits in i64)",
                 })?)
@@ -133,6 +132,49 @@ impl FromData for Vec<u8> {
         match data {
             Data::B { value } => Ok(value.clone()),
             _ => Err(DataError::UnexpectedVariant { expected: "B" }),
+        }
+    }
+}
+
+// String is encoded as UTF-8 ByteString on-chain
+impl ToData for String {
+    fn to_data(&self) -> Data {
+        Data::B {
+            value: self.as_bytes().to_vec(),
+        }
+    }
+}
+
+impl FromData for String {
+    fn from_data(data: &Data) -> Result<Self, DataError> {
+        match data {
+            Data::B { value } => String::from_utf8(value.clone()).map_err(|_| {
+                DataError::UnexpectedVariant {
+                    expected: "B (valid UTF-8)",
+                }
+            }),
+            _ => Err(DataError::UnexpectedVariant { expected: "B" }),
+        }
+    }
+}
+
+// Unit is Constr(0, []) — same as Data::unit()
+impl ToData for () {
+    fn to_data(&self) -> Data {
+        Data::Constr {
+            tag: 0,
+            args: vec![],
+        }
+    }
+}
+
+impl FromData for () {
+    fn from_data(data: &Data) -> Result<Self, DataError> {
+        match data {
+            Data::Constr { tag: 0, args } if args.is_empty() => Ok(()),
+            _ => Err(DataError::UnexpectedVariant {
+                expected: "Constr(0, [])",
+            }),
         }
     }
 }
