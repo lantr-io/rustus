@@ -76,6 +76,10 @@ path = "examples/pubkey-validator/main.rs"
 name = "preimage-validator"
 path = "examples/preimage-validator/main.rs"
 
+[[example]]
+name = "htlc-validator"
+path = "examples/htlc-validator/main.rs"
+
 # --- Tests: validator integration tests ---
 [[test]]
 name = "pubkey-validator-tests"
@@ -84,3 +88,7 @@ path = "examples/pubkey-validator/tests.rs"
 [[test]]
 name = "preimage-validator-tests"
 path = "examples/preimage-validator/tests.rs"
+
+[[test]]
+name = "htlc-validator-tests"
+path = "examples/htlc-validator/tests.rs"
