@@ -22,11 +22,12 @@ fn test_config() -> Config {
     }
 }
 
-fn make_v3_ctx(config: &Config, action: &Action, signatories: Vec<PubKeyHash>) -> Data {
-    let tx_out_ref = TxOutRef {
-        id: TxId { hash: ByteString::from_hex("00") },
-        idx: 0.into(),
-    };
+fn make_v3_ctx(
+    config: &Config,
+    action: &Action,
+    signatories: Vec<PubKeyHash>,
+    valid_range: Interval,
+) -> Data {
     v3::ScriptContext {
         tx_info: v3::TxInfo {
             inputs: List::Nil,
@@ -36,7 +37,7 @@ fn make_v3_ctx(config: &Config, action: &Action, signatories: Vec<PubKeyHash>) -
             mint: Value { inner: Data::Map { values: vec![] } },
             certificates: List::Nil,
             withdrawals: SortedMap::empty(),
-            valid_range: Interval::always(),
+            valid_range,
             signatories: List::from_vec(signatories),
             redeemers: SortedMap::empty(),
             data: SortedMap::empty(),
@@ -48,7 +49,10 @@ fn make_v3_ctx(config: &Config, action: &Action, signatories: Vec<PubKeyHash>) -
         },
         redeemer: action.to_data(),
         script_info: v3::ScriptInfo::SpendingScript {
-            tx_out_ref,
+            tx_out_ref: TxOutRef {
+                id: TxId { hash: ByteString::from_hex("00") },
+                idx: 0.into(),
+            },
             datum: PlutusOption::Some { value: config.to_data() },
         },
     }.to_data()
@@ -58,12 +62,19 @@ fn try_compile() -> Option<rustus::Validator> {
     rustus::compile_module("htlc_validator").ok()
 }
 
+// --- Reveal tests ---
+
 #[test]
-fn reveal_correct_preimage() {
+fn reveal_correct_preimage_before_timeout() {
     let Some(validator) = try_compile() else { return };
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
-    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()]);
+    // valid_to = 500, timeout = 1000 → 500 <= 1000 ✓
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(0.into()),
+        to: IntervalBound::finite_exclusive(500.into()),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()], range);
     let result = validator.eval(&[ctx]).unwrap();
     assert!(result.succeeded(), "Expected success: {:?} logs={:?}", result.error, result.logs);
 }
@@ -73,10 +84,30 @@ fn reveal_wrong_preimage() {
     let Some(validator) = try_compile() else { return };
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"wrong") };
-    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()]);
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(0.into()),
+        to: IntervalBound::finite_exclusive(500.into()),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()], range);
     let result = validator.eval(&[ctx]).unwrap();
     assert!(result.failed());
     assert!(result.logs.iter().any(|l| l.contains("Invalid preimage")));
+}
+
+#[test]
+fn reveal_after_timeout_fails() {
+    let Some(validator) = try_compile() else { return };
+    let config = test_config();
+    let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
+    // valid_to = 2000, timeout = 1000 → 2000 <= 1000 ✗
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(0.into()),
+        to: IntervalBound::finite_exclusive(2000.into()),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()], range);
+    let result = validator.eval(&[ctx]).unwrap();
+    assert!(result.failed());
+    assert!(result.logs.iter().any(|l| l.contains("Must be before timeout")));
 }
 
 #[test]
@@ -84,20 +115,47 @@ fn reveal_wrong_signer() {
     let Some(validator) = try_compile() else { return };
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
-    let ctx = make_v3_ctx(&config, &action, vec![config.committer.clone()]);
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(0.into()),
+        to: IntervalBound::finite_exclusive(500.into()),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.committer.clone()], range);
     let result = validator.eval(&[ctx]).unwrap();
     assert!(result.failed());
     assert!(result.logs.iter().any(|l| l.contains("Must be signed by receiver")));
 }
 
+// --- Timeout tests ---
+
 #[test]
-fn timeout_correct_signer() {
+fn timeout_after_deadline() {
     let Some(validator) = try_compile() else { return };
     let config = test_config();
     let action = Action::Timeout;
-    let ctx = make_v3_ctx(&config, &action, vec![config.committer.clone()]);
+    // valid_from = 1500, timeout = 1000 → 1000 <= 1500 ✓
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(1500.into()),
+        to: IntervalBound::pos_inf(),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.committer.clone()], range);
     let result = validator.eval(&[ctx]).unwrap();
     assert!(result.succeeded(), "Expected success: {:?} logs={:?}", result.error, result.logs);
+}
+
+#[test]
+fn timeout_before_deadline_fails() {
+    let Some(validator) = try_compile() else { return };
+    let config = test_config();
+    let action = Action::Timeout;
+    // valid_from = 500, timeout = 1000 → 1000 <= 500 ✗
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(500.into()),
+        to: IntervalBound::pos_inf(),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.committer.clone()], range);
+    let result = validator.eval(&[ctx]).unwrap();
+    assert!(result.failed());
+    assert!(result.logs.iter().any(|l| l.contains("Must be after timeout")));
 }
 
 #[test]
@@ -105,7 +163,11 @@ fn timeout_wrong_signer() {
     let Some(validator) = try_compile() else { return };
     let config = test_config();
     let action = Action::Timeout;
-    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()]);
+    let range = Interval {
+        from: IntervalBound::finite_inclusive(1500.into()),
+        to: IntervalBound::pos_inf(),
+    };
+    let ctx = make_v3_ctx(&config, &action, vec![config.receiver.clone()], range);
     let result = validator.eval(&[ctx]).unwrap();
     assert!(result.failed());
     assert!(result.logs.iter().any(|l| l.contains("Must be signed by committer")));

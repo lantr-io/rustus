@@ -1,8 +1,8 @@
 use rustus_core::bytestring::ByteString;
 use rustus_core::data::{Data, FromData};
+use rustus_core::num_bigint::BigInt;
 use rustus_prelude::builtins;
-use rustus_prelude::ledger::v1::PubKeyHash;
-use rustus_prelude::ledger::v1::PosixTime;
+use rustus_prelude::ledger::v1::{IntervalBoundType, PubKeyHash, PosixTime};
 use rustus_prelude::ledger::v3;
 use rustus_prelude::list;
 use rustus_prelude::option::Option as PlutusOption;
@@ -25,8 +25,8 @@ pub enum Action {
 
 /// V3 HTLC validator — single Data argument (ScriptContext).
 ///
-/// - Timeout: committer reclaims, must be signed by committer
-/// - Reveal: receiver claims by preimage, must be signed by receiver
+/// - Timeout: committer reclaims after timeout, signed by committer
+/// - Reveal: receiver claims before timeout by preimage, signed by receiver
 #[rustus::compile]
 pub fn htlc_validator(sc_data: Data) {
     let ctx: v3::ScriptContext = FromData::from_data(&sc_data).unwrap();
@@ -42,6 +42,13 @@ pub fn htlc_validator(sc_data: Data) {
 
             match action {
                 Action::Timeout => {
+                    // Must be after timeout
+                    let valid_from: PosixTime = match ctx.tx_info.valid_range.from.bound_type {
+                        IntervalBoundType::Finite { time } => time,
+                        _ => BigInt::from(0),
+                    };
+                    rustus_prelude::require!(config.timeout <= valid_from, "Must be after timeout");
+                    // Must be signed by committer
                     let signed: bool = list::contains(
                         ctx.tx_info.signatories,
                         config.committer,
@@ -49,11 +56,19 @@ pub fn htlc_validator(sc_data: Data) {
                     rustus_prelude::require!(signed, "Must be signed by committer");
                 }
                 Action::Reveal { preimage } => {
+                    // Must be before timeout
+                    let valid_to: PosixTime = match ctx.tx_info.valid_range.to.bound_type {
+                        IntervalBoundType::Finite { time } => time,
+                        _ => panic!("ValidTo must be set"),
+                    };
+                    rustus_prelude::require!(valid_to <= config.timeout, "Must be before timeout");
+                    // Must be signed by receiver
                     let signed: bool = list::contains(
                         ctx.tx_info.signatories,
                         config.receiver,
                     );
                     rustus_prelude::require!(signed, "Must be signed by receiver");
+                    // Preimage must match
                     let hash: ByteString = builtins::sha3_256(&preimage);
                     rustus_prelude::require!(hash == config.image, "Invalid preimage");
                 }
