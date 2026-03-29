@@ -1,22 +1,12 @@
 //! Tests for PubKey Validator — compile to UPLC and eval in CEK machine.
 
-use rustus_core::data::{Data, FromData, ToData};
+#[path = "validator.rs"]
+mod validator;
+use validator::OwnerDatum;
+
+use rustus_core::data::{Data, ToData};
 use rustus_prelude::ledger::v1::*;
-use rustus_prelude::list;
 use rustus_prelude::list::List;
-
-#[derive(Debug, Clone, PartialEq, rustus::ToData, rustus::FromData)]
-pub struct OwnerDatum {
-    pub owner: PubKeyHash,
-}
-
-#[rustus::compile]
-fn pubkey_validator(datum: Data, _redeemer: Data, ctx: Data) {
-    let owner_datum: OwnerDatum = FromData::from_data(&datum).unwrap();
-    let script_ctx: ScriptContext = FromData::from_data(&ctx).unwrap();
-    let signed: bool = list::contains(script_ctx.tx_info.signatories, owner_datum.owner);
-    rustus_prelude::require!(signed, "Not signed by owner")
-}
 
 fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
     ScriptContext {
