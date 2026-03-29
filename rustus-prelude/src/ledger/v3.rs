@@ -8,6 +8,7 @@ use rustus_core::num_bigint::BigInt;
 use super::v1::{self, Credential, DatumHash, Hash, Interval, Lovelace, PolicyId, PubKeyHash, TxId, TxOutRef, Value};
 use crate::list::List;
 use crate::option::Option;
+use crate::sorted_map::SortedMap;
 
 pub type Datum = rustus_core::data::Data;
 pub type Redeemer = rustus_core::data::Data;
@@ -196,13 +197,13 @@ pub struct TxInfo {
     pub fee: Lovelace,
     pub mint: Value,
     pub certificates: List<TxCert>,
-    pub withdrawals: Datum,           // TODO: SortedMap<Credential, Lovelace>
+    pub withdrawals: SortedMap<Credential, Lovelace>,
     pub valid_range: Interval,
     pub signatories: List<PubKeyHash>,
-    pub redeemers: Datum,             // TODO: SortedMap<ScriptPurpose, Redeemer>
-    pub data: Datum,                  // TODO: SortedMap<DatumHash, Datum>
+    pub redeemers: SortedMap<ScriptPurpose, Redeemer>,
+    pub data: SortedMap<DatumHash, Datum>,
     pub id: TxId,
-    pub votes: Datum,                 // TODO: SortedMap<Voter, SortedMap<GovernanceActionId, Vote>>
+    pub votes: SortedMap<Voter, SortedMap<GovernanceActionId, Vote>>,
     pub proposal_procedures: List<ProposalProcedure>,
     pub current_treasury_amount: Option<Lovelace>,
     pub treasury_donation: Option<Lovelace>,
