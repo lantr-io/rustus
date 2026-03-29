@@ -11,6 +11,118 @@ use crate::option::Option;
 
 pub type Datum = rustus_core::data::Data;
 pub type Redeemer = rustus_core::data::Data;
+pub type ColdCommitteeCredential = Credential;
+pub type HotCommitteeCredential = Credential;
+pub type DRepCredential = Credential;
+
+// ---------------------------------------------------------------------------
+// Governance types
+// ---------------------------------------------------------------------------
+
+/// Vote — No, Yes, or Abstain.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.Vote`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.Vote")]
+pub enum Vote {
+    No,
+    Yes,
+    Abstain,
+}
+
+/// DRep — delegated representative.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.DRep`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.DRep")]
+pub enum DRep {
+    DRep { credential: DRepCredential },
+    AlwaysAbstain,
+    AlwaysNoConfidence,
+}
+
+/// Delegatee — staking delegation target.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.Delegatee`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.Delegatee")]
+pub enum Delegatee {
+    Stake { pub_key_hash: PubKeyHash },
+    Vote { d_rep: DRep },
+    StakeVote { pub_key_hash: PubKeyHash, d_rep: DRep },
+}
+
+/// TxCert — transaction certificate (11 variants).
+/// scalus name: `scalus.cardano.onchain.plutus.v3.TxCert`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.TxCert")]
+pub enum TxCert {
+    RegStaking { credential: Credential, deposit: Option<Lovelace> },
+    UnRegStaking { credential: Credential, refund: Option<Lovelace> },
+    DelegStaking { credential: Credential, delegatee: Delegatee },
+    RegDeleg { credential: Credential, delegatee: Delegatee, deposit: Lovelace },
+    RegDRep { credential: DRepCredential, deposit: Lovelace },
+    UpdateDRep { credential: DRepCredential },
+    UnRegDRep { credential: DRepCredential, refund: Lovelace },
+    PoolRegister { pool_id: PubKeyHash, pool_vfr: PubKeyHash },
+    PoolRetire { pub_key_hash: PubKeyHash, epoch: BigInt },
+    AuthHotCommittee { cold: ColdCommitteeCredential, hot: HotCommitteeCredential },
+    ResignColdCommittee { cold: ColdCommitteeCredential },
+}
+
+/// Voter — who is voting in governance.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.Voter`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.Voter")]
+pub enum Voter {
+    CommitteeVoter { credential: HotCommitteeCredential },
+    DRepVoter { credential: DRepCredential },
+    StakePoolVoter { pub_key_hash: PubKeyHash },
+}
+
+/// GovernanceActionId — reference to a governance action.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.GovernanceActionId`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.GovernanceActionId")]
+pub struct GovernanceActionId {
+    pub tx_id: TxId,
+    pub gov_action_ix: BigInt,
+}
+
+/// ProtocolVersion
+/// scalus name: `scalus.cardano.onchain.plutus.v3.ProtocolVersion`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.ProtocolVersion")]
+pub struct ProtocolVersion {
+    pub pv_major: BigInt,
+    pub pv_minor: BigInt,
+}
+
+/// GovernanceAction — 7 variants.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.GovernanceAction`
+/// Note: fields that need SortedMap use Datum (raw Data) for now.
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.GovernanceAction")]
+pub enum GovernanceAction {
+    ParameterChange { id: Option<GovernanceActionId>, parameters: Datum, constitution_script: Option<Hash> },
+    HardForkInitiation { id: Option<GovernanceActionId>, protocol_version: ProtocolVersion },
+    TreasuryWithdrawals { withdrawals: Datum, constitution_script: Option<Hash> },
+    NoConfidence { id: Option<GovernanceActionId> },
+    UpdateCommittee { id: Option<GovernanceActionId>, removed_members: List<ColdCommitteeCredential>, added_members: Datum, new_quorum: Datum },
+    NewConstitution { id: Option<GovernanceActionId>, constitution: Option<Hash> },
+    InfoAction,
+}
+
+/// ProposalProcedure
+/// scalus name: `scalus.cardano.onchain.plutus.v3.ProposalProcedure`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.ProposalProcedure")]
+pub struct ProposalProcedure {
+    pub deposit: Lovelace,
+    pub return_address: Credential,
+    pub governance_action: GovernanceAction,
+}
+
+// ---------------------------------------------------------------------------
+// V3 ScriptPurpose / ScriptInfo — now with typed fields
+// ---------------------------------------------------------------------------
 
 /// V3 ScriptPurpose — extended with governance actions.
 /// scalus name: `scalus.cardano.onchain.plutus.v3.ScriptPurpose`
@@ -20,9 +132,9 @@ pub enum ScriptPurpose {
     Minting { policy_id: PolicyId },
     Spending { tx_out_ref: TxOutRef },
     Rewarding { credential: Credential },
-    Certifying { index: BigInt, cert: Datum },
-    Voting { voter: Datum },
-    Proposing { index: BigInt, procedure: Datum },
+    Certifying { index: BigInt, cert: TxCert },
+    Voting { voter: Voter },
+    Proposing { index: BigInt, procedure: ProposalProcedure },
 }
 
 /// V3 ScriptInfo
@@ -33,10 +145,14 @@ pub enum ScriptInfo {
     MintingScript { policy_id: PolicyId },
     SpendingScript { tx_out_ref: TxOutRef, datum: Option<Datum> },
     RewardingScript { credential: Credential },
-    CertifyingScript { index: BigInt, cert: Datum },
-    VotingScript { voter: Datum },
-    ProposingScript { index: BigInt, procedure: Datum },
+    CertifyingScript { index: BigInt, cert: TxCert },
+    VotingScript { voter: Voter },
+    ProposingScript { index: BigInt, procedure: ProposalProcedure },
 }
+
+// ---------------------------------------------------------------------------
+// V2/V3 shared types
+// ---------------------------------------------------------------------------
 
 /// OutputDatum — V2/V3 datum attachment.
 /// scalus name: `scalus.cardano.onchain.plutus.v2.OutputDatum`
@@ -68,8 +184,9 @@ pub struct TxInInfo {
     pub resolved: TxOut,
 }
 
-/// TxInfo V3 — the full transaction info for PlutusV3 scripts.
+/// TxInfo V3.
 /// scalus name: `scalus.cardano.onchain.plutus.v3.TxInfo`
+/// Fields needing SortedMap use Datum (raw Data) until SortedMap is implemented.
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v3.TxInfo")]
 pub struct TxInfo {
@@ -78,15 +195,15 @@ pub struct TxInfo {
     pub outputs: List<TxOut>,
     pub fee: Lovelace,
     pub mint: Value,
-    pub certificates: List<Datum>,
-    pub withdrawals: Datum,
+    pub certificates: List<TxCert>,
+    pub withdrawals: Datum,           // TODO: SortedMap<Credential, Lovelace>
     pub valid_range: Interval,
     pub signatories: List<PubKeyHash>,
-    pub redeemers: Datum,
-    pub data: Datum,
+    pub redeemers: Datum,             // TODO: SortedMap<ScriptPurpose, Redeemer>
+    pub data: Datum,                  // TODO: SortedMap<DatumHash, Datum>
     pub id: TxId,
-    pub votes: Datum,
-    pub proposal_procedures: List<Datum>,
+    pub votes: Datum,                 // TODO: SortedMap<Voter, SortedMap<GovernanceActionId, Vote>>
+    pub proposal_procedures: List<ProposalProcedure>,
     pub current_treasury_amount: Option<Lovelace>,
     pub treasury_donation: Option<Lovelace>,
 }
