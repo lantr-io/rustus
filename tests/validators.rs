@@ -88,10 +88,7 @@ fn pubkey_validator_correct_signer() {
     let datum = OwnerDatum { owner: pkh.clone() }.to_data();
     let ctx = make_ctx(vec![pkh]);
     let result = validator.eval(&[datum, Data::unit(), ctx]).unwrap();
-    // TODO: investigate — equalsData comparison fails on PubKeyHash in contains
-    // The preimage_validator tests pass with the same pattern, suggesting
-    // a subtle issue with how pubkey_validator's contains call is lowered.
-    assert!(result.succeeded() || result.failed()); // placeholder — passes either way
+    assert!(result.succeeded(), "Expected success: {:?}", result.error);
 }
 
 #[test]

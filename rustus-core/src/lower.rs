@@ -466,7 +466,7 @@ impl<'a> LowerCtx<'a> {
                         } else {
                             SIRType::Data
                         };
-                        let eq_sir = make_equality_builtin(&elem_tp);
+                        let eq_sir = make_equality_builtin_with_ctx(&elem_tp, self.ctx);
                         let apply_tp = peel_fun_result(&remaining_tp);
                         result = SIR::Apply {
                             f: Box::new(result),
@@ -525,7 +525,8 @@ impl<'a> LowerCtx<'a> {
                 }
                 // Concrete: resolve from operand type
                 let left_tp = crate::typing::sir_type(&left_sir);
-                let (builtin, operand_tp) = match &left_tp {
+                let resolved_tp = resolve_one_element_inner(&left_tp, self.ctx);
+                let (builtin, operand_tp) = match &resolved_tp {
                     SIRType::Integer => (DefaultFun::EqualsInteger, SIRType::Integer),
                     SIRType::ByteString => (DefaultFun::EqualsByteString, SIRType::ByteString),
                     SIRType::String => (DefaultFun::EqualsString, SIRType::String),
@@ -1043,6 +1044,33 @@ fn make_builtin_apply2(
         tp: result_tp,
         anns: anns.clone(),
     }
+}
+
+/// Create the correct equality builtin for a given SIRType.
+/// For one_element types (ProductCaseOneElement), resolves to the inner field's equality.
+fn make_equality_builtin_with_ctx(tp: &SIRType, ctx: &ResolutionContext) -> SIR {
+    let resolved = resolve_one_element_inner(tp, ctx);
+    make_equality_builtin(&resolved)
+}
+
+/// If the type is a CaseClass with ProductCaseOneElement annotation, return the inner type.
+/// Otherwise return the type unchanged.
+fn resolve_one_element_inner(tp: &SIRType, ctx: &ResolutionContext) -> SIRType {
+    if let SIRType::CaseClass { decl_name, .. } = tp {
+        if let Some(decl) = ctx.data_decls.get(decl_name) {
+            let is_one_element = decl.annotations.data.iter().any(|(k, v)| {
+                k == "uplcRepr" && matches!(v, SIR::Const { uplc_const: UplcConstant::String { value }, .. } if value == "ProductCaseOneElement")
+            });
+            if is_one_element {
+                if let Some(constr) = decl.constructors.first() {
+                    if let Some(param) = constr.params.first() {
+                        return resolve_one_element_inner(&param.tp, ctx);
+                    }
+                }
+            }
+        }
+    }
+    tp.clone()
 }
 
 /// Create the correct equality builtin for a given SIRType.

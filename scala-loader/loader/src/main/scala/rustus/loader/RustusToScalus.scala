@@ -62,9 +62,12 @@ object RustusToScalus:
       defs = bindings
     )
 
-    // Main binding = last non-module binding (the user's validator)
-    val mainBinding = bindings.findLast(b =>
-      rmodule.defs.find(_.name == b.name).flatMap(_.module_name).isEmpty
+    // Main binding = the binding whose name matches the module name,
+    // or fallback to last non-module binding
+    val mainBinding = bindings.find(_.name == rmodule.name).orElse(
+      bindings.findLast(b =>
+        rmodule.defs.find(_.name == b.name).flatMap(_.module_name).isEmpty
+      )
     )
     TransformResult(module, mainBinding)
 
