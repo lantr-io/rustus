@@ -1225,20 +1225,38 @@ fn build_substitution(
     subst
 }
 
-/// Find a DataDecl by short Rust name, checking TypeDict and global data_decls.
+/// Find a DataDecl by Rust name, checking TypeDict and global data_decls.
+/// Handles both short names ("ScriptContext") and qualified names ("v3::ScriptContext").
 fn find_data_decl_by_name<'a>(
     rust_name: &str,
     data_decls: &'a std::collections::BTreeMap<String, DataDecl>,
     type_dict: &'a TypeDict,
 ) -> Option<&'a DataDecl> {
-    // Try TypeDict first
+    // Try TypeDict first (exact match)
     if let Some(decl) = type_dict.decl_map.get(rust_name) {
         return Some(decl);
     }
-    // Try global data_decls by short name match
+    // Convert Rust path "v3::ScriptContext" to dotted suffix ".v3.ScriptContext"
+    // for matching against scalus names like "scalus.cardano.onchain.plutus.v3.ScriptContext"
+    let dotted_suffix = rust_name.replace("::", ".");
     for (decl_name, decl) in data_decls {
+        // Exact short name match: last segment of scalus name
         let short = decl_name.rsplit('.').next().unwrap_or(decl_name);
         if short == rust_name {
+            return Some(decl);
+        }
+        // Qualified suffix match: "v3.ScriptContext" matches "...v3.ScriptContext"
+        if dotted_suffix.contains('.') && decl_name.ends_with(&dotted_suffix) {
+            return Some(decl);
+        }
+    }
+    // Also try TypeDict by suffix
+    for (key, decl) in &type_dict.decl_map {
+        let short = key.rsplit('.').next().unwrap_or(key);
+        if short == rust_name {
+            return Some(decl);
+        }
+        if dotted_suffix.contains('.') && key.ends_with(&dotted_suffix) {
             return Some(decl);
         }
     }

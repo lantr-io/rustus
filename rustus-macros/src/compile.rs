@@ -221,12 +221,14 @@ fn rust_type_to_type_hint(ty: &syn::Type, generic_params: &[String]) -> TokenStr
 
 fn extract_base_type_name(ty: &syn::Type) -> String {
     if let syn::Type::Path(type_path) = ty {
+        // Use full path (e.g., "v3::ScriptContext") not just last segment
         type_path
             .path
             .segments
-            .last()
+            .iter()
             .map(|s| s.ident.to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+            .collect::<Vec<_>>()
+            .join("::")
     } else {
         "unknown".to_string()
     }
