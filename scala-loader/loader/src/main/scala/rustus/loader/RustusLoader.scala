@@ -2,6 +2,7 @@ package rustus.loader
 
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import rustus.loader.RustusJsonCodec.*
+import scalus.cardano.ledger.MajorProtocolVersion
 import scalus.compiler.sir.*
 import scalus.compiler.sir.linking.{SIRLinker, SIRLinkerOptions}
 import scalus.compiler.sir.lowering.SirToUplcV3Lowering
@@ -23,10 +24,8 @@ object RustusLoader:
 
     result.mainBinding match
       case Some(binding) =>
-        // Build support modules from all non-main bindings, grouped by module_name
-        val supportModules: Map[String, Module] =
-          module.defs
-            .filter(_.name != binding.name)
+        def buildModuleMap(defs: List[Binding]): Map[String, Module] =
+          defs
             .groupBy(b =>
               rmodule.defs.find(_.name == b.name).flatMap(_.module_name).getOrElse(module.name)
             )
@@ -40,16 +39,29 @@ object RustusLoader:
               )
             }
 
+        // All non-main bindings go to linker (intrinsic resolver needs them in scope too)
+        val allSupportModules = buildModuleMap(
+          module.defs.filter(b => b.name != binding.name)
+        )
+
+        val opts = rmodule.options
+
         val linkerOptions = SIRLinkerOptions(
           useUniversalDataConversion = true,
           printErrors = true,
           debugLevel = 0
         )
-        val linker = new SIRLinker(linkerOptions, supportModules)
+        val linker = new SIRLinker(linkerOptions, allSupportModules)
         val linkedSir = linker.link(binding.value, SIRPosition.empty)
-        val lowering = SirToUplcV3Lowering(linkedSir, generateErrorTraces = true)
+        val lowering = SirToUplcV3Lowering(
+          linkedSir,
+          generateErrorTraces = opts.generate_error_traces,
+          targetProtocolVersion = MajorProtocolVersion(opts.target_protocol_version),
+          intrinsicModules = scalus.compiler.sir.lowering.IntrinsicResolver.defaultIntrinsicModules,
+          supportModules = scalus.compiler.sir.lowering.IntrinsicResolver.defaultSupportModules
+        )
         val term = lowering.lower()
-        CompiledValidator(term)
+        CompiledValidator(term, MajorProtocolVersion(opts.target_protocol_version))
 
       case None =>
         throw new RuntimeException("No main binding found in module")
@@ -57,10 +69,10 @@ object RustusLoader:
 /** Holds a compiled UPLC term with annotations for source mapping.
   * Rust holds a JNI GlobalRef to instances of this class.
   */
-class CompiledValidator(val term: Term):
+class CompiledValidator(val term: Term, protocolVersion: MajorProtocolVersion = MajorProtocolVersion.changPV):
 
   private lazy val flatBytes: Array[Byte] = UplcProgram.plutusV3(term).flatEncoded
-  private lazy val plutusVM: PlutusVM = PlutusVM.makePlutusV3VM()
+  private lazy val plutusVM: PlutusVM = PlutusVM.makePlutusV3VM(protocolVersion)
 
   /** UPLC flat-encoded bytes (strips annotations). For on-chain submission. */
   def toFlat: Array[Byte] = flatBytes

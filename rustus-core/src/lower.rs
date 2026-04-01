@@ -1009,6 +1009,11 @@ impl ResolutionContext {
         } else {
             self.register_binding(&def.sir_name, fn_type, sir_value);
         }
+        if def.redirect_to_scalus {
+            if let Some(b) = self.bindings.last_mut() {
+                b.redirect_to_scalus = true;
+            }
+        }
     }
 }
 

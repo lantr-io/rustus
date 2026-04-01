@@ -269,6 +269,13 @@ pub fn compile_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let (module_attr, name_attr) = parse_compile_attrs(attr);
     let sir_name = name_attr.unwrap_or_else(|| fn_name_str.clone());
 
+    // Check for #[rustus(redirect_to_scalus)] on the function
+    let redirect_to_scalus = has_rustus_flag(&input_fn.attrs, "redirect_to_scalus");
+
+    // Strip #[rustus(...)] attributes so they don't cause "unknown attribute" errors
+    let mut input_fn = input_fn;
+    input_fn.attrs.retain(|a| !a.path().is_ident("rustus"));
+
     // Extract parameter info
     let params: Vec<(&syn::Ident, &syn::Type)> = input_fn
         .sig
@@ -395,6 +402,8 @@ pub fn compile_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                 data: std::collections::HashMap::new(),
             };
 
+            let __redirect_to_scalus: bool = #redirect_to_scalus;
+
             // TypeDict: type registrations evaluated at builder time
             let mut __td = rustus_core::pre_sir::TypeDict::new();
             #(#type_regs)*
@@ -409,6 +418,7 @@ pub fn compile_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                 typeclass_bounds: vec![#(#typeclass_bounds),*],
                 body: #body_pre_sir,
                 type_dict: __td,
+                redirect_to_scalus: __redirect_to_scalus,
             };
             ctx.lower_fn_def(pre_fn);
         }
@@ -1124,6 +1134,26 @@ fn extract_enum_path(path: &syn::Path) -> (String, String) {
     } else {
         ("unknown".to_string(), "unknown".to_string())
     }
+}
+
+/// Check if a function has `#[rustus(flag_name)]` attribute.
+fn has_rustus_flag(attrs: &[syn::Attribute], flag: &str) -> bool {
+    for attr in attrs {
+        if attr.path().is_ident("rustus") {
+            if let Ok(nested) = attr.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            ) {
+                for meta in nested {
+                    if let syn::Meta::Path(p) = meta {
+                        if p.is_ident(flag) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Parse #[compile(module = "...", name = "...")] attributes.

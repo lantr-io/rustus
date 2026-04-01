@@ -85,9 +85,36 @@ pub struct Binding {
     pub module_name: Option<String>,
     pub tp: SIRType,
     pub value: SIR,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub redirect_to_scalus: bool,
 }
 
 pub const SIR_VERSION: (i32, i32) = (5, 0);
+
+/// Compiler options passed to the Scalus backend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompilerOptions {
+    /// Target Cardano protocol version. 9=changPV, 11=vanRossemPV (pv11).
+    pub target_protocol_version: i32,
+    /// Include error trace messages in compiled UPLC.
+    pub generate_error_traces: bool,
+    /// Strip all trace calls from compiled UPLC.
+    pub remove_traces: bool,
+    /// Run UPLC optimizer.
+    pub optimize_uplc: bool,
+}
+
+impl Default for CompilerOptions {
+    fn default() -> Self {
+        CompilerOptions {
+            target_protocol_version: 11,
+            generate_error_traces: true,
+            remove_traces: false,
+            optimize_uplc: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Module {
@@ -99,4 +126,6 @@ pub struct Module {
     pub data_decls: BTreeMap<String, DataDecl>,
     pub defs: Vec<Binding>,
     pub anns: AnnotationsDecl,
+    #[serde(default)]
+    pub options: CompilerOptions,
 }

@@ -125,6 +125,7 @@ impl ResolutionContext {
             module_name: Some(module_name.to_string()),
             tp,
             value,
+            redirect_to_scalus: false,
         });
     }
 
@@ -135,6 +136,7 @@ impl ResolutionContext {
             module_name: None,
             tp,
             value,
+            redirect_to_scalus: false,
         });
     }
 
@@ -181,6 +183,7 @@ impl ResolutionContext {
             data_decls: self.data_decls,
             defs: self.bindings,
             anns: AnnotationsDecl::empty(),
+            options: module::CompilerOptions::default(),
         }
     }
 }

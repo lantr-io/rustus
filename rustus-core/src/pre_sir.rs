@@ -279,4 +279,6 @@ pub struct PreFnDef {
     pub body: PreSIR,
     /// Type dictionary populated at builder time.
     pub type_dict: TypeDict,
+    /// If true, on-chain compilation delegates to scalus intrinsic.
+    pub redirect_to_scalus: bool,
 }

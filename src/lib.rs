@@ -35,7 +35,27 @@ fn scalus_vm() -> Result<&'static Arc<ScalusVM>, RustusError> {
 /// Lazily initializes the JVM on first call.
 /// Requires JAVA_HOME or java on PATH, and the rustus-scalus uber-JAR.
 pub fn compile_module(name: &str) -> Result<Validator, RustusError> {
-    let module = rustus_core::registry::build_module(name);
+    compile_module_with_options(name, rustus_core::module::CompilerOptions::default())
+}
+
+/// Compile a named module with custom compiler options.
+pub fn compile_module_with_options(
+    name: &str,
+    options: rustus_core::module::CompilerOptions,
+) -> Result<Validator, RustusError> {
+    let mut module = rustus_core::registry::build_module(name);
+    // Verify no Unresolved types remain — catch bugs before sending to scalus
+    for binding in &module.defs {
+        if let Err(errors) = rustus_core::typing::verify_complete(&binding.value) {
+            let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            return Err(RustusError::Compilation(format!(
+                "Unresolved types in {}: {}",
+                binding.name,
+                msgs.join(", ")
+            )));
+        }
+    }
+    module.options = options;
     let vm = scalus_vm()?;
     vm.compile(&module)
 }

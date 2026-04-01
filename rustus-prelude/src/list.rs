@@ -51,6 +51,28 @@ impl<T: rustus_core::data::ToData + Clone> List<T> {
     }
 }
 
+impl<T: Clone> List<T> {
+    /// Index into the list. Panics if out of bounds.
+    pub fn at(&self, idx: &rustus_core::num_bigint::BigInt) -> T {
+        use rustus_core::num_bigint::BigInt;
+        let mut cur = self;
+        let mut i = idx.clone();
+        let zero = BigInt::from(0);
+        loop {
+            match cur {
+                List::Nil => panic!("at: index out of bounds"),
+                List::Cons { head, tail } => {
+                    if i == zero {
+                        return head.clone();
+                    }
+                    i -= 1;
+                    cur = tail;
+                }
+            }
+        }
+    }
+}
+
 impl<T: PartialEq + Clone> List<T> {
     /// Rust-side contains (works with any PartialEq type for testing).
     pub fn contains_elem(&self, elem: &T) -> bool {
@@ -71,8 +93,10 @@ impl<T: PartialEq + Clone> List<T> {
 mod sir {
     use super::List;
     use rustus_core::data::Data;
+    use rustus_core::num_bigint::BigInt;
 
     #[rustus_macros::compile]
+    #[rustus(redirect_to_scalus)]
     pub fn is_empty(list: List<Data>) -> bool {
         match list {
             List::Nil => true,
@@ -81,6 +105,7 @@ mod sir {
     }
 
     #[rustus_macros::compile]
+    #[rustus(redirect_to_scalus)]
     pub fn head(list: List<Data>) -> Data {
         match list {
             List::Cons { head, .. } => head,
@@ -89,6 +114,7 @@ mod sir {
     }
 
     #[rustus_macros::compile]
+    #[rustus(redirect_to_scalus)]
     pub fn tail(list: List<Data>) -> List<Data> {
         match list {
             List::Cons { tail, .. } => *tail,
@@ -96,9 +122,26 @@ mod sir {
         }
     }
 
-    /// On-chain contains: uses typeclass equality.
-    /// SIR signature: (List<T>, T, (T, T) → Boolean) → Boolean
+    /// On-chain indexed access. Panics if out of bounds.
+    /// On pv11+, intrinsic substitution replaces with headList(dropList(idx, list)).
     #[rustus_macros::compile]
+    #[rustus(redirect_to_scalus)]
+    pub fn at(list: List<Data>, idx: rustus_core::num_bigint::BigInt) -> Data {
+        match list {
+            List::Nil => panic!("at: index out of bounds"),
+            List::Cons { head, tail } => {
+                if idx == BigInt::from(0) {
+                    head
+                } else {
+                    at(*tail, idx - BigInt::from(1))
+                }
+            }
+        }
+    }
+
+    /// On-chain contains: uses typeclass equality.
+    #[rustus_macros::compile]
+    #[rustus(redirect_to_scalus)]
     pub fn contains<T: PartialEq>(list: List<T>, elem: T) -> bool {
         match list {
             List::Nil => false,
@@ -113,4 +156,4 @@ mod sir {
     }
 }
 
-pub use sir::{contains, head, is_empty, tail};
+pub use sir::{at, contains, head, is_empty, tail};

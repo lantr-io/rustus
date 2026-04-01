@@ -61,6 +61,7 @@ object RustusJsonCodec:
     case SumCaseClass(decl_name: String, type_args: List[RSIRType])
     case CaseClass(constr_name: String, decl_name: String, type_args: List[RSIRType])
     case TypeVar(name: String, opt_id: Option[Long], is_builtin: scala.Boolean)
+    case TypeNothing
     case Unresolved
 
   case class RLetFlags(
@@ -72,7 +73,8 @@ object RustusJsonCodec:
       name: String,
       module_name: Option[String] = None,
       tp: RSIRType,
-      value: RSIR
+      value: RSIR,
+      redirect_to_scalus: scala.Boolean = false
   )
 
   enum RPattern:
@@ -139,6 +141,16 @@ object RustusJsonCodec:
     case Decl(data: RDataDecl, term: RSIR)
     case Select(scrutinee: RSIR, field: String, tp: RSIRType, anns: RAnnotationsDecl)
 
+  case class RCompilerOptions(
+      target_protocol_version: Int = 11,
+      generate_error_traces: scala.Boolean = true,
+      remove_traces: scala.Boolean = false,
+      optimize_uplc: scala.Boolean = false
+  )
+
+  object RCompilerOptions:
+    val default: RCompilerOptions = RCompilerOptions()
+
   case class RModule(
       version: (Int, Int),
       name: String,
@@ -146,7 +158,8 @@ object RustusJsonCodec:
       require_backend: Option[String] = None,
       data_decls: Map[String, RDataDecl],
       defs: List[RBinding],
-      anns: RAnnotationsDecl
+      anns: RAnnotationsDecl,
+      options: RCompilerOptions = RCompilerOptions.default
   )
 
   // --- jsoniter-scala codecs ---
@@ -196,6 +209,7 @@ object RustusJsonCodec:
             ),
             obj.getOrElse("is_builtin", false).asInstanceOf[scala.Boolean]
           )
+        case "TypeNothing" => RSIRType.TypeNothing
         case other => throw new RuntimeException(s"Unknown SIRType: $other")
 
     def encodeValue(x: RSIRType, out: JsonWriter): scala.Unit =
@@ -233,6 +247,7 @@ object RustusJsonCodec:
             ),
             obj.getOrElse("is_builtin", false).asInstanceOf[scala.Boolean]
           )
+        case "TypeNothing" => RSIRType.TypeNothing
         case other => throw new RuntimeException(s"Unknown SIRType: $other")
     case _ => throw new RuntimeException(s"Expected map for SIRType, got: $v")
 
@@ -285,6 +300,17 @@ object RustusJsonCodec:
       val defs = obj("defs").asInstanceOf[List[Any]]
       val anns = parseAnnotationsDecl(obj("anns"))
 
+      val d = RCompilerOptions.default
+      val options = obj.get("options").map { v =>
+        val o = v.asInstanceOf[Map[String, Any]]
+        RCompilerOptions(
+          target_protocol_version = o.get("target_protocol_version").map(_.asInstanceOf[Number].intValue).getOrElse(d.target_protocol_version),
+          generate_error_traces = o.get("generate_error_traces").map(_.asInstanceOf[scala.Boolean]).getOrElse(d.generate_error_traces),
+          remove_traces = o.get("remove_traces").map(_.asInstanceOf[scala.Boolean]).getOrElse(d.remove_traces),
+          optimize_uplc = o.get("optimize_uplc").map(_.asInstanceOf[scala.Boolean]).getOrElse(d.optimize_uplc)
+        )
+      }.getOrElse(d)
+
       RModule(
         version = (version(0).asInstanceOf[Number].intValue, version(1).asInstanceOf[Number].intValue),
         name = obj("name").asInstanceOf[String],
@@ -294,7 +320,8 @@ object RustusJsonCodec:
         ),
         data_decls = dataDecls.map((k, v) => k -> parseDataDecl(v)),
         defs = defs.map(v => parseBinding(v)),
-        anns = anns
+        anns = anns,
+        options = options
       )
 
     def encodeValue(x: RModule, out: JsonWriter): scala.Unit =
@@ -363,7 +390,8 @@ object RustusJsonCodec:
         if v == null then None else Some(v.asInstanceOf[String])
       ),
       tp = parseType(obj("tp")),
-      value = parseSIR(obj("value"))
+      value = parseSIR(obj("value")),
+      redirect_to_scalus = obj.get("redirect_to_scalus").map(_.asInstanceOf[scala.Boolean]).getOrElse(false)
     )
 
   private def parseUplcConstant(v: Any): RUplcConstant =

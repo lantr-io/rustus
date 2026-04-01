@@ -48,6 +48,10 @@ name = "test_errors"
 path = "examples/test-starting/test_errors.rs"
 
 [[example]]
+name = "test_list_at"
+path = "examples/test-starting/test_list_at.rs"
+
+[[example]]
 name = "test_api"
 path = "examples/test-starting/test_api.rs"
 
@@ -81,6 +85,10 @@ name = "htlc-validator"
 path = "examples/htlc-validator/main.rs"
 
 # --- Tests: validator integration tests ---
+[[test]]
+name = "list-at-tests"
+path = "examples/test-starting/test_list_at_eval.rs"
+
 [[test]]
 name = "pubkey-validator-tests"
 path = "examples/pubkey-validator/tests.rs"

@@ -127,6 +127,10 @@ object RustusToScalus:
         SIRType.CaseClass(constr, convertedTypeArgs, parent)
       case RSIRType.TypeVar(name, optId, isBuiltin) =>
         SIRType.TypeVar(name, optId, isBuiltin)
+      case RSIRType.TypeNothing =>
+        SIRType.TypeNothing
+      case RSIRType.Unresolved =>
+        throw new RuntimeException("Unresolved type in SIR — this is a rustus compilation bug")
 
   // --- SIR conversion ---
 

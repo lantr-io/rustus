@@ -70,6 +70,8 @@ pub enum SIRType {
         #[serde(default)]
         is_builtin: bool,
     },
+    // Bottom type — used for Error/panic nodes. Compatible with any type during inference.
+    TypeNothing,
     // Placeholder for unresolved types — filled in by the typing pass
     Unresolved,
 }

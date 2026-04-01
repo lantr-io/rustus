@@ -205,7 +205,7 @@ pub fn sir_type(sir: &SIR) -> SIRType {
         SIR::Match { tp, .. } => tp.clone(),
         SIR::IfThenElse { tp, .. } => tp.clone(),
         SIR::Builtin { tp, .. } => tp.clone(),
-        SIR::Error { .. } => SIRType::Unresolved,
+        SIR::Error { .. } => SIRType::TypeNothing,
         SIR::Decl { term, .. } => sir_type(term),
         SIR::Select { tp, .. } => tp.clone(),
     }
@@ -305,10 +305,14 @@ fn type_node(
                 type_case(case, &scrutinee_tp, &subst, env, st, errors);
             }
 
-            // Infer match result type from first arm
+            // Infer match result type from first non-bottom arm
             if *tp == SIRType::Unresolved {
-                if let Some(first_case) = cases.first() {
-                    *tp = sir_type(&first_case.body);
+                for case in cases.iter() {
+                    let case_tp = sir_type(&case.body);
+                    if case_tp != SIRType::Unresolved && case_tp != SIRType::TypeNothing {
+                        *tp = case_tp;
+                        break;
+                    }
                 }
             }
         }
@@ -318,7 +322,15 @@ fn type_node(
             type_node(t, env, st, errors);
             type_node(f, env, st, errors);
             if *tp == SIRType::Unresolved {
-                *tp = sir_type(t);
+                let t_tp = sir_type(t);
+                if t_tp != SIRType::Unresolved && t_tp != SIRType::TypeNothing {
+                    *tp = t_tp;
+                } else {
+                    let f_tp = sir_type(f);
+                    if f_tp != SIRType::Unresolved && f_tp != SIRType::TypeNothing {
+                        *tp = f_tp;
+                    }
+                }
             }
         }
 
