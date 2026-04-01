@@ -6,6 +6,9 @@ scala-loader/**/target/
 scala-loader/project/target/
 scala-loader/project/project/
 
+# Local docs
+docs/local/
+
 # IDE
 .metals/
 .bsp/
