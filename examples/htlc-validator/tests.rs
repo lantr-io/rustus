@@ -34,7 +34,7 @@ fn make_v3_ctx(
             reference_inputs: List::Nil,
             outputs: List::Nil,
             fee: 0.into(),
-            mint: Value { inner: Data::Map { values: vec![] } },
+            mint: Value::zero(),
             certificates: List::Nil,
             withdrawals: SortedMap::empty(),
             valid_range,

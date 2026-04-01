@@ -6,6 +6,7 @@ use rustus_core::bytestring::ByteString;
 use rustus_core::num_bigint::BigInt;
 
 use crate::list::List;
+use crate::sorted_map::SortedMap;
 
 // Type aliases matching scalus
 pub type Hash = ByteString;
@@ -120,7 +121,47 @@ impl Interval {
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v1.Value", repr = "one_element")]
 pub struct Value {
-    pub inner: rustus_core::data::Data,
+    pub inner: SortedMap<PolicyId, SortedMap<TokenName, BigInt>>,
+}
+
+impl Value {
+    /// Empty value — no tokens.
+    pub fn zero() -> Self {
+        Value { inner: SortedMap::empty() }
+    }
+
+    /// Value with a single token.
+    pub fn singleton(cs: PolicyId, tn: TokenName, amount: BigInt) -> Self {
+        Value {
+            inner: SortedMap::singleton(cs, SortedMap::singleton(tn, amount)),
+        }
+    }
+
+    /// Value with only lovelace (ADA). PolicyId and TokenName are both empty ByteStrings.
+    pub fn lovelace(amount: BigInt) -> Self {
+        Self::singleton(ByteString::new(), ByteString::new(), amount)
+    }
+
+    /// Get the quantity of a specific token. Returns 0 if not found.
+    pub fn quantity_of(&self, cs: &PolicyId, tn: &TokenName) -> BigInt {
+        match self.inner.get(cs) {
+            Some(tokens) => tokens.get(tn).unwrap_or(BigInt::from(0)),
+            None => BigInt::from(0),
+        }
+    }
+
+    /// Get the lovelace (ADA) amount. Returns 0 if none.
+    pub fn get_lovelace(&self) -> BigInt {
+        self.quantity_of(&ByteString::new(), &ByteString::new())
+    }
+
+    /// Get all tokens for a given policy ID. Returns empty map if not found.
+    pub fn tokens(&self, cs: &PolicyId) -> SortedMap<TokenName, BigInt> {
+        match self.inner.get(cs) {
+            Some(tokens) => tokens,
+            None => SortedMap::empty(),
+        }
+    }
 }
 
 /// TxId: transaction hash.

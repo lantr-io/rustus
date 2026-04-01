@@ -14,8 +14,8 @@ fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
     ScriptContext {
         tx_info: TxInfo {
             inputs: List::Nil, outputs: List::Nil,
-            fee: Value { inner: Data::Map { values: vec![] } },
-            mint: Value { inner: Data::Map { values: vec![] } },
+            fee: Value::zero(),
+            mint: Value::zero(),
             dcert: List::Nil, withdrawals: List::Nil,
             valid_range: Interval::always(),
             signatories: List::from_vec(signatories),
