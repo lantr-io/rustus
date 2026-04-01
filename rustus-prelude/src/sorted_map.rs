@@ -61,6 +61,9 @@ impl<K: Clone + Ord, V: Clone> SortedMap<K, V> {
                     if &head.fst == key {
                         return Some(head.snd.clone());
                     }
+                    if head.fst > *key {
+                        return None;
+                    }
                     cur = tail;
                 }
             }

@@ -124,38 +124,37 @@ pub struct Value {
     pub inner: SortedMap<PolicyId, SortedMap<TokenName, BigInt>>,
 }
 
+/// ADA policy ID — empty ByteString per Cardano convention.
+pub const ADA_POLICY_ID: PolicyId = ByteString::new();
+/// ADA token name — empty ByteString per Cardano convention.
+pub const ADA_TOKEN_NAME: TokenName = ByteString::new();
+
 impl Value {
-    /// Empty value — no tokens.
     pub fn zero() -> Self {
         Value { inner: SortedMap::empty() }
     }
 
-    /// Value with a single token.
     pub fn singleton(cs: PolicyId, tn: TokenName, amount: BigInt) -> Self {
         Value {
             inner: SortedMap::singleton(cs, SortedMap::singleton(tn, amount)),
         }
     }
 
-    /// Value with only lovelace (ADA). PolicyId and TokenName are both empty ByteStrings.
     pub fn lovelace(amount: BigInt) -> Self {
-        Self::singleton(ByteString::new(), ByteString::new(), amount)
+        Self::singleton(ADA_POLICY_ID, ADA_TOKEN_NAME, amount)
     }
 
-    /// Get the quantity of a specific token. Returns 0 if not found.
     pub fn quantity_of(&self, cs: &PolicyId, tn: &TokenName) -> BigInt {
         match self.inner.get(cs) {
-            Some(tokens) => tokens.get(tn).unwrap_or(BigInt::from(0)),
+            Some(tokens) => tokens.get(tn).unwrap_or_else(|| BigInt::from(0)),
             None => BigInt::from(0),
         }
     }
 
-    /// Get the lovelace (ADA) amount. Returns 0 if none.
     pub fn get_lovelace(&self) -> BigInt {
-        self.quantity_of(&ByteString::new(), &ByteString::new())
+        self.quantity_of(&ADA_POLICY_ID, &ADA_TOKEN_NAME)
     }
 
-    /// Get all tokens for a given policy ID. Returns empty map if not found.
     pub fn tokens(&self, cs: &PolicyId) -> SortedMap<TokenName, BigInt> {
         match self.inner.get(cs) {
             Some(tokens) => tokens,
