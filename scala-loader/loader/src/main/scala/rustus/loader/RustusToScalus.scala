@@ -126,7 +126,7 @@ object RustusToScalus:
         val parent = if isCaseClass then None else Some(SIRType.SumCaseClass(decl, convertedTypeArgs))
         SIRType.CaseClass(constr, convertedTypeArgs, parent)
       case RSIRType.TypeVar(name, optId, isBuiltin) =>
-        SIRType.TypeVar(name, optId, isBuiltin)
+        SIRType.TypeVar(name, optId, SIRType.TypeVarKind.fromIsBuiltin(isBuiltin))
       case RSIRType.TypeNothing =>
         SIRType.TypeNothing
       case RSIRType.Unresolved =>
@@ -273,11 +273,11 @@ object RustusToScalus:
       case RUplcConstant.Bool(v)       => Constant.Bool(v)
       case RUplcConstant.StringConst(v) => Constant.String(v)
       case RUplcConstant.ByteString(v) =>
-        Constant.ByteString(scalus.builtin.ByteString.fromArray(v.map(_.toByte).toArray))
+        Constant.ByteString(scalus.uplc.builtin.ByteString.fromArray(v.map(_.toByte).toArray))
       case RUplcConstant.UnitConst     => Constant.Unit
 
   private def convertTypeVar(rv: RTypeVar): SIRType.TypeVar =
-    SIRType.TypeVar(rv.name, rv.opt_id, rv.is_builtin)
+    SIRType.TypeVar(rv.name, rv.opt_id, SIRType.TypeVarKind.fromIsBuiltin(rv.is_builtin))
 
   private def convertDataDeclInline(
       rd: RDataDecl,

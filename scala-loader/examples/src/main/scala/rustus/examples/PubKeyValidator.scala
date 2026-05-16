@@ -1,6 +1,6 @@
 package rustus.examples
 
-import scalus.Compile
+import scalus.compiler.Compile
 import scalus.uplc.builtin.{ByteString, Data}
 import scalus.uplc.builtin.Data.{fromData, toData}
 import scalus.cardano.onchain.plutus.prelude.*

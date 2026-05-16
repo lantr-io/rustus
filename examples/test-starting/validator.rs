@@ -1,5 +1,5 @@
 use rustus_core::data::Data;
-use rustus_core::data::ToData;
+use rustus_core::data::{FromData, ToData};
 use rustus_prelude::list;
 
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
@@ -16,8 +16,9 @@ struct Datum {
 }
 
 #[rustus_macros::compile]
-fn validator(datum: Datum, _redeemer: Data, _ctx: Data) -> bool {
-    match datum.color {
+fn validator(datum: Data, _redeemer: Data, _ctx: Data) -> bool {
+    let typed: Datum = Datum::from_data(&datum).unwrap();
+    match typed.color {
         Color::Red => true,
         _ => false,
     }
@@ -29,13 +30,13 @@ fn main() {
         owner: vec![1, 2, 3],
         color: Color::Red,
     };
-    println!("validator(Red) = {}", validator(datum.clone(), Data::unit(), Data::unit()));
+    println!("validator(Red) = {}", validator(datum.to_data(), Data::unit(), Data::unit()));
 
     let datum2 = Datum {
         owner: vec![4, 5, 6],
         color: Color::Blue,
     };
-    println!("validator(Blue) = {}", validator(datum2, Data::unit(), Data::unit()));
+    println!("validator(Blue) = {}", validator(datum2.to_data(), Data::unit(), Data::unit()));
 
     // Test prelude function in Rust
     let test_list = rustus_prelude::List::from_vec(vec![

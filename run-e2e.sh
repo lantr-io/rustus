@@ -12,7 +12,7 @@ echo
 # Step 2: Run the Scala loader
 echo "--- Step 2: Loading SIR in Scalus, lowering to UPLC ---"
 cd scala-loader
-sbt --error "run ../my_validator.sir.json"
+sbt --error "loader/run ../my_validator.sir.json"
 cd ..
 
 # Cleanup

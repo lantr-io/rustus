@@ -564,7 +564,7 @@ object RustusJsonCodec:
         scalus.uplc.builtin.Data.I(parseNumBigInt(obj("value")))
       case "B" =>
         val bytes = obj("value").asInstanceOf[List[Any]].map(_.asInstanceOf[Number].byteValue).toArray
-        scalus.uplc.builtin.Data.B(scalus.builtin.ByteString.fromArray(bytes))
+        scalus.uplc.builtin.Data.B(scalus.uplc.builtin.ByteString.fromArray(bytes))
       case "Map" =>
         val pairs = obj("values").asInstanceOf[List[Any]].map { pair =>
           val arr = pair.asInstanceOf[List[Any]]

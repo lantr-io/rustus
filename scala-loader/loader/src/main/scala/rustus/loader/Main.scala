@@ -72,46 +72,52 @@ object Main:
           println("Linked SIR:")
           println(scalus.show(linkedSir))
 
-          val lowering = SirToUplcV3Lowering(linkedSir, generateErrorTraces = true)
+          // Pass Scalus's intrinsic modules so types like PubKeyHash/TxId/AssocMap/Value
+          // pick up their `@UplcRepr` annotations during lowering (Scalus 0.17 moved these
+          // from hardcoded `OneElementWrapper` defaults to annotation-driven dispatch).
+          val lowering = SirToUplcV3Lowering(
+            linkedSir,
+            generateErrorTraces = true,
+            intrinsicModules = scalus.compiler.sir.lowering.IntrinsicResolver.defaultIntrinsicModules,
+            supportModules = scalus.compiler.sir.lowering.IntrinsicResolver.defaultSupportModules
+          )
           val term = lowering.lower()
           println(s"UPLC term:")
           println(term.pretty.render(80))
 
-          // 5. Apply to test arguments and evaluate (V1 style: 3 args)
-          println("\n--- Applying to test arguments (V1) ---")
-          import scalus.uplc.builtin.ByteString.*
+          // 5. Apply to test arguments and evaluate
+          // The Rust validator takes `Data` and uses `Datum::from_data(...).unwrap()` inside,
+          // which lowers to `SIR.Apply(UDC.fromData, datum)` — a noop in V3. So we can pass the
+          // datum as a plain `Data.Constr`, matching the actual Plutus runtime calling convention.
+          println("\n--- Applying to test arguments ---")
           import scalus.uplc.builtin.Data
-          import scalus.uplc.builtin.Data.toData
-          import scalus.cardano.onchain.plutus.v1.*
-          import scalus.cardano.onchain.plutus.prelude.List.{Cons, Nil}
+          import scalus.cardano.onchain.plutus.prelude.{List => ScList}
 
-          // Build V1 ScriptContext using scalus's own typed constructors
-          val ownerPkh = PubKeyHash(hex"deadbeef")
-          val scriptContext = ScriptContext(
-            TxInfo(
-              Nil,                                         // inputs
-              Nil,                                         // outputs
-              Value.zero,                                  // fee
-              Value.zero,                                  // mint
-              Nil,                                         // dcert
-              Nil,                                         // withdrawals
-              Interval.always,                             // valid_range
-              Cons(ownerPkh, Nil),                         // signatories — owner is here!
-              Nil,                                         // data
-              TxId(hex"bb")                                // id
-            ),
-            ScriptPurpose.Spending(TxOutRef(TxId(hex"deadbeef"), 0))
-          )
-
-          // OwnerDatum { owner: Data } — datum contains the owner pkh as Data
-          val datumData = Data.Constr(0, scalus.cardano.onchain.plutus.prelude.List(ownerPkh.toData))
+          val owner = scalus.uplc.builtin.ByteString.fromArray(Array[Byte](1, 2, 3))
+          val colorRed = Data.Constr(0, ScList.Nil)
+          val datumData = Data.Constr(0, ScList(Data.B(owner), colorRed))
 
           import TermDSL.given
-          val appliedTerm = term $ datumData $ Data.unit $ scriptContext.toData
-          println(s"Applied: validator(datum)(unit)(scriptContext)")
+          val appliedTerm = term $ datumData $ Data.unit $ Data.unit
+          println(s"Applied: validator(datum=Red)(unit)(unit)")
 
           println("\n--- Evaluation (PlutusV3) ---")
-          val program = scalus.uplc.Program.plutusV3(appliedTerm)
+          // Plutus V3 validators must return Unit (throwing on failure). The Rust validator
+          // returns Bool, so wrap: `if result then () else error`.
+          val unitTerm = scalus.uplc.Term.Const(scalus.uplc.Constant.Unit)
+          val wrappedTerm = scalus.uplc.Term.Force(
+            scalus.uplc.Term.Apply(
+              scalus.uplc.Term.Apply(
+                scalus.uplc.Term.Apply(
+                  scalus.uplc.Term.Force(scalus.uplc.Term.Builtin(DefaultFun.IfThenElse)),
+                  appliedTerm
+                ),
+                scalus.uplc.Term.Delay(unitTerm)
+              ),
+              scalus.uplc.Term.Delay(scalus.uplc.Term.Error())
+            )
+          )
+          val program = scalus.uplc.Program.plutusV3(wrappedTerm)
           val deBruijned = DeBruijn.deBruijnProgram(program)
           given PlutusVM = PlutusVM.makePlutusV3VM()
           val evalResult = deBruijned.evaluateDebug
