@@ -679,11 +679,14 @@ fn gen_struct_has_sir_type(
     let type_app_args = ginfo.type_application_args();
     let params = gen_type_bindings_for_fields_generic(&data_struct.fields, &tv_map);
 
-    // UplcRepr annotation: maps repr attribute to Scalus representation name
+    // UplcRepr annotation: maps repr attribute to Scalus representation name.
+    // These string values must match the case names that
+    // `scalus.compiler.sir.lowering.typegens.SirTypeUplcGenerator.resolveUplcRepresentation`
+    // dispatches on.
     let uplc_repr_name = if is_one_element {
         Some("ProductCaseOneElement")
     } else if is_map {
-        Some("Map")
+        Some("PackedDataMap")
     } else {
         None
     };
