@@ -28,13 +28,14 @@ fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
     }.to_data()
 }
 
-fn try_compile() -> Option<rustus::Validator> {
-    rustus::compile_module("preimage_validator").ok()
+fn compile() -> rustus::Validator {
+    rustus::compile_module("preimage_validator")
+        .unwrap_or_else(|e| panic!("compiling preimage_validator: {e}"))
 }
 
 #[test]
 fn correct_preimage_and_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let secret = ByteString::from_slice(b"my secret preimage");
     let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
     let datum = PreimageDatum { hash: builtins::sha2_256(&secret), pkh: pkh.clone() }.to_data();
@@ -45,7 +46,7 @@ fn correct_preimage_and_signer() {
 
 #[test]
 fn wrong_preimage() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
     let datum = PreimageDatum {
         hash: builtins::sha2_256(&ByteString::from_slice(b"correct")),
@@ -59,7 +60,7 @@ fn wrong_preimage() {
 
 #[test]
 fn missing_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let secret = ByteString::from_slice(b"my secret");
     let pkh = PubKeyHash { hash: ByteString::from_hex("aabb") };
     let wrong = PubKeyHash { hash: ByteString::from_hex("ff") };
@@ -72,13 +73,13 @@ fn missing_signer() {
 
 #[test]
 fn produces_flat() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     assert!(!validator.to_flat().unwrap().is_empty());
 }
 
 #[test]
 fn uplc_contains_sha2() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let text = validator.to_text().unwrap();
     assert!(text.contains("sha2_256") || text.contains("Sha2"));
 }

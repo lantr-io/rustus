@@ -86,6 +86,10 @@ path = "examples/htlc-validator/main.rs"
 
 # --- Tests: validator integration tests ---
 [[test]]
+name = "example-compile-tests"
+path = "examples/test-starting/compile_tests.rs"
+
+[[test]]
 name = "list-at-tests"
 path = "examples/test-starting/test_list_at_eval.rs"
 

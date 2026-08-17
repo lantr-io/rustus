@@ -27,13 +27,14 @@ fn make_ctx(signatories: Vec<PubKeyHash>) -> Data {
     }.to_data()
 }
 
-fn try_compile() -> Option<rustus::Validator> {
-    rustus::compile_module("pubkey_validator").ok()
+fn compile() -> rustus::Validator {
+    rustus::compile_module("pubkey_validator")
+        .unwrap_or_else(|e| panic!("compiling pubkey_validator: {e}"))
 }
 
 #[test]
 fn correct_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let pkh = PubKeyHash { hash: ByteString::from_hex("deadbeef") };
     let datum = OwnerDatum { owner: pkh.clone() }.to_data();
     let result = validator.eval(&[datum, Data::unit(), make_ctx(vec![pkh])]).unwrap();
@@ -42,7 +43,7 @@ fn correct_signer() {
 
 #[test]
 fn wrong_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let pkh = PubKeyHash { hash: ByteString::from_hex("deadbeef") };
     let wrong = PubKeyHash { hash: ByteString::from_hex("cafe") };
     let datum = OwnerDatum { owner: pkh }.to_data();
@@ -52,6 +53,6 @@ fn wrong_signer() {
 
 #[test]
 fn produces_flat() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     assert!(!validator.to_flat().unwrap().is_empty());
 }

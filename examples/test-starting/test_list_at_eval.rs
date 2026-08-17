@@ -11,8 +11,9 @@ fn check_at(list_data: Data, idx_data: Data) {
     let _elem: Data = list::at(list, idx);
 }
 
-fn try_compile() -> Option<rustus::Validator> {
-    rustus::compile_module("check_at").ok()
+fn compile() -> rustus::Validator {
+    rustus::compile_module("check_at")
+        .unwrap_or_else(|e| panic!("compiling check_at: {e}"))
 }
 
 fn make_list(items: Vec<i64>) -> Data {
@@ -21,42 +22,42 @@ fn make_list(items: Vec<i64>) -> Data {
 
 #[test]
 fn at_first_element() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![10, 20, 30]), BigInt::from(0).to_data()]).unwrap();
     assert!(result.succeeded(), "at(0) failed: {:?}", result.error);
 }
 
 #[test]
 fn at_middle_element() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![10, 20, 30]), BigInt::from(1).to_data()]).unwrap();
     assert!(result.succeeded(), "at(1) failed: {:?}", result.error);
 }
 
 #[test]
 fn at_last_element() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![10, 20, 30]), BigInt::from(2).to_data()]).unwrap();
     assert!(result.succeeded(), "at(2) failed: {:?}", result.error);
 }
 
 #[test]
 fn at_out_of_bounds_fails() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![10, 20, 30]), BigInt::from(3).to_data()]).unwrap();
     assert!(result.failed());
 }
 
 #[test]
 fn at_empty_list_fails() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![]), BigInt::from(0).to_data()]).unwrap();
     assert!(result.failed());
 }
 
 #[test]
 fn at_single_element() {
-    let Some(v) = try_compile() else { return };
+    let v = compile();
     let result = v.eval(&[make_list(vec![42]), BigInt::from(0).to_data()]).unwrap();
     assert!(result.succeeded(), "at(0) on singleton failed: {:?}", result.error);
 }

@@ -58,15 +58,16 @@ fn make_v3_ctx(
     }.to_data()
 }
 
-fn try_compile() -> Option<rustus::Validator> {
-    rustus::compile_module("htlc_validator").ok()
+fn compile() -> rustus::Validator {
+    rustus::compile_module("htlc_validator")
+        .unwrap_or_else(|e| panic!("compiling htlc_validator: {e}"))
 }
 
 // --- Reveal tests ---
 
 #[test]
 fn reveal_correct_preimage_before_timeout() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
     // valid_to = 500, timeout = 1000 → 500 <= 1000 ✓
@@ -81,7 +82,7 @@ fn reveal_correct_preimage_before_timeout() {
 
 #[test]
 fn reveal_wrong_preimage() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"wrong") };
     let range = Interval {
@@ -96,7 +97,7 @@ fn reveal_wrong_preimage() {
 
 #[test]
 fn reveal_after_timeout_fails() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
     // valid_to = 2000, timeout = 1000 → 2000 <= 1000 ✗
@@ -112,7 +113,7 @@ fn reveal_after_timeout_fails() {
 
 #[test]
 fn reveal_wrong_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Reveal { preimage: ByteString::from_slice(b"secret") };
     let range = Interval {
@@ -129,7 +130,7 @@ fn reveal_wrong_signer() {
 
 #[test]
 fn timeout_after_deadline() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Timeout;
     // valid_from = 1500, timeout = 1000 → 1000 <= 1500 ✓
@@ -144,7 +145,7 @@ fn timeout_after_deadline() {
 
 #[test]
 fn timeout_before_deadline_fails() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Timeout;
     // valid_from = 500, timeout = 1000 → 1000 <= 500 ✗
@@ -160,7 +161,7 @@ fn timeout_before_deadline_fails() {
 
 #[test]
 fn timeout_wrong_signer() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     let config = test_config();
     let action = Action::Timeout;
     let range = Interval {
@@ -175,6 +176,6 @@ fn timeout_wrong_signer() {
 
 #[test]
 fn produces_flat() {
-    let Some(validator) = try_compile() else { return };
+    let validator = compile();
     assert!(!validator.to_flat().unwrap().is_empty());
 }
