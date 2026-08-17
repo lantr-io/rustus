@@ -231,7 +231,10 @@ impl<'a> LowerCtx<'a> {
                         anns: AnnotationsDecl::empty(),
                     },
                 };
-                let tp = crate::typing::sir_type(&then_sir);
+                let tp = branch_result_type([
+                    crate::typing::sir_type(&then_sir),
+                    crate::typing::sir_type(&else_sir),
+                ]);
                 SIR::IfThenElse {
                     cond: Box::new(cond_sir),
                     t: Box::new(then_sir),
@@ -539,21 +542,17 @@ impl<'a> LowerCtx<'a> {
                         anns: anns.clone(),
                     };
                 }
-                // Concrete: resolve from operand type
+                // Concrete: resolve from operand type, selecting through one_element
+                // wrappers so the builtin is applied to values of the type it expects
                 let left_tp = crate::typing::sir_type(&left_sir);
-                let resolved_tp = resolve_one_element_inner(&left_tp, self.ctx);
-                let (builtin, operand_tp) = match &resolved_tp {
-                    SIRType::Integer => (DefaultFun::EqualsInteger, SIRType::Integer),
-                    SIRType::ByteString => (DefaultFun::EqualsByteString, SIRType::ByteString),
-                    SIRType::String => (DefaultFun::EqualsString, SIRType::String),
-                    _ => (DefaultFun::EqualsData, SIRType::Data),
-                };
+                let (resolved_tp, path) = one_element_unwrap_path(&left_tp, self.ctx);
+                let (builtin, operand_tp) = equality_builtin_for(&resolved_tp);
                 make_builtin_apply2(
                     builtin,
                     operand_tp,
                     SIRType::Boolean,
-                    left_sir,
-                    right_sir,
+                    apply_unwrap_path(left_sir, &path),
+                    apply_unwrap_path(right_sir, &path),
                     anns,
                 )
             }
@@ -621,11 +620,7 @@ impl<'a> LowerCtx<'a> {
             .map(|arm| self.lower_match_arm(arm, &scrutinee_tp, &subst))
             .collect();
 
-        // Infer result type from first arm
-        let tp = cases
-            .first()
-            .map(|c| crate::typing::sir_type(&c.body))
-            .unwrap_or(SIRType::Unresolved);
+        let tp = branch_result_type(cases.iter().map(|c| crate::typing::sir_type(&c.body)));
 
         SIR::Match {
             scrutinee: Box::new(scrutinee_sir),
@@ -1032,6 +1027,21 @@ fn const_type(c: &UplcConstant) -> SIRType {
     }
 }
 
+/// The result type of a branching expression: the first branch that isn't bottom.
+/// A branch that only raises has type Nothing and says nothing about the result —
+/// taking it would make every other branch fail to upcast during lowering.
+/// Falls back to the first branch when all of them are bottom.
+fn branch_result_type(branch_tps: impl IntoIterator<Item = SIRType>) -> SIRType {
+    let mut first = None;
+    for tp in branch_tps {
+        if tp != SIRType::Unresolved && tp != SIRType::TypeNothing {
+            return tp;
+        }
+        first.get_or_insert(tp);
+    }
+    first.unwrap_or(SIRType::Unresolved)
+}
+
 /// Peel one layer from a Fun type, returning the result type.
 fn peel_fun_result(tp: &SIRType) -> SIRType {
     match tp {
@@ -1078,57 +1088,136 @@ fn make_builtin_apply2(
 }
 
 /// Create the correct equality builtin for a given SIRType.
-/// For one_element types (ProductCaseOneElement), resolves to the inner field's equality.
+/// For one_element types (ProductCaseOneElement), compares the inner fields.
 fn make_equality_builtin_with_ctx(tp: &SIRType, ctx: &ResolutionContext) -> SIR {
-    let resolved = resolve_one_element_inner(tp, ctx);
-    make_equality_builtin(&resolved)
+    let (inner, path) = one_element_unwrap_path(tp, ctx);
+    if path.is_empty() {
+        return make_equality_builtin(&inner);
+    }
+    make_unwrapping_comparator(equality_builtin_for(&inner), tp, &path)
 }
 
-/// If the type is a CaseClass with ProductCaseOneElement annotation, return the inner type.
-/// Otherwise return the type unchanged.
-fn resolve_one_element_inner(tp: &SIRType, ctx: &ResolutionContext) -> SIRType {
-    if let SIRType::CaseClass { decl_name, .. } = tp {
-        if let Some(decl) = ctx.data_decls.get(decl_name) {
-            let is_one_element = decl.annotations.data.iter().any(|(k, v)| {
-                k == "uplcRepr" && matches!(v, SIR::Const { uplc_const: UplcConstant::String { value }, .. } if value == "ProductCaseOneElement")
-            });
-            if is_one_element {
-                if let Some(constr) = decl.constructors.first() {
-                    if let Some(param) = constr.params.first() {
-                        return resolve_one_element_inner(&param.tp, ctx);
-                    }
-                }
-            }
+/// Names and types of the fields to select through to reach the value a
+/// one_element wrapper wraps: `[(field, field_tp), ..]`, outermost first.
+type UnwrapPath = Vec<(String, SIRType)>;
+
+/// Follow a chain of CaseClasses annotated `ProductCaseOneElement`, returning the
+/// innermost wrapped type together with the fields selected to reach it. The path is
+/// empty when `tp` is not a one_element wrapper.
+fn one_element_unwrap_path(tp: &SIRType, ctx: &ResolutionContext) -> (SIRType, UnwrapPath) {
+    let mut path = UnwrapPath::new();
+    let mut current = tp.clone();
+    while let SIRType::CaseClass { decl_name, .. } = &current {
+        let Some(decl) = ctx.data_decls.get(decl_name) else {
+            break;
+        };
+        let is_one_element = decl.annotations.data.iter().any(|(k, v)| {
+            k == "uplcRepr" && matches!(v, SIR::Const { uplc_const: UplcConstant::String { value }, .. } if value == "ProductCaseOneElement")
+        });
+        if !is_one_element {
+            break;
         }
+        let Some(param) = decl.constructors.first().and_then(|c| c.params.first()) else {
+            break;
+        };
+        path.push((param.name.clone(), param.tp.clone()));
+        current = param.tp.clone();
     }
-    tp.clone()
+    (current, path)
+}
+
+/// Select through `path` on an already-lowered value: `sir` -> `sir.f1.f2..`.
+fn apply_unwrap_path(sir: SIR, path: &UnwrapPath) -> SIR {
+    path.iter()
+        .fold(sir, |scrutinee, (field, field_tp)| SIR::Select {
+            scrutinee: Box::new(scrutinee),
+            field: field.clone(),
+            tp: field_tp.clone(),
+            anns: AnnotationsDecl::empty(),
+        })
+}
+
+/// Build `λl r -> fun(l.f.., r.f..)` for a one_element wrapper type.
+///
+/// The comparator has to keep the wrapper type — it is passed where a `T -> T -> Boolean`
+/// is expected — so the unwrapping is done by selecting the wrapped field rather than by
+/// handing over a builtin typed on the inner type. Selecting on a one_element wrapper is
+/// free: scalus lowers the wrapper to its field's representation.
+fn make_unwrapping_comparator(
+    (fun, operand_tp): (DefaultFun, SIRType),
+    wrapper_tp: &SIRType,
+    path: &UnwrapPath,
+) -> SIR {
+    let operand = |name: &str| {
+        apply_unwrap_path(
+            SIR::Var {
+                name: name.to_string(),
+                tp: wrapper_tp.clone(),
+                anns: AnnotationsDecl::empty(),
+            },
+            path,
+        )
+    };
+    let body = make_builtin_apply2(
+        fun,
+        operand_tp,
+        SIRType::Boolean,
+        operand("__lhs"),
+        operand("__rhs"),
+        &AnnotationsDecl::empty(),
+    );
+    ["__rhs", "__lhs"]
+        .iter()
+        .fold(body, |term, name| SIR::LamAbs {
+            param: Box::new(SIR::Var {
+                name: name.to_string(),
+                tp: wrapper_tp.clone(),
+                anns: AnnotationsDecl::empty(),
+            }),
+            term: Box::new(term),
+            type_params: vec![],
+            anns: AnnotationsDecl::empty(),
+        })
 }
 
 /// Create the correct ord builtin for a given SIRType, resolving one_element types.
 fn make_ord_builtin_with_ctx(tp: &SIRType, ctx: &ResolutionContext) -> SIR {
-    let resolved = resolve_one_element_inner(tp, ctx);
-    make_ord_builtin(&resolved)
+    let (inner, path) = one_element_unwrap_path(tp, ctx);
+    if path.is_empty() {
+        return make_ord_builtin(&inner);
+    }
+    make_unwrapping_comparator(ord_builtin_for(&inner), tp, &path)
+}
+
+/// The LessThan builtin comparing values of a given SIRType, with its operand type.
+fn ord_builtin_for(tp: &SIRType) -> (DefaultFun, SIRType) {
+    match tp {
+        SIRType::Integer => (DefaultFun::LessThanInteger, SIRType::Integer),
+        SIRType::ByteString => (DefaultFun::LessThanByteString, SIRType::ByteString),
+        _ => (DefaultFun::LessThanInteger, SIRType::Integer), // fallback — Data has no ordering builtin
+    }
 }
 
 /// Create an ord builtin (LessThan) for a given SIRType.
 /// Returns a function `(A, A) -> Boolean` using LessThan builtins.
 fn make_ord_builtin(tp: &SIRType) -> SIR {
-    let (fun, operand_tp) = match tp {
-        SIRType::Integer => (DefaultFun::LessThanInteger, SIRType::Integer),
-        SIRType::ByteString => (DefaultFun::LessThanByteString, SIRType::ByteString),
-        _ => (DefaultFun::LessThanInteger, SIRType::Integer), // fallback — Data has no ordering builtin
-    };
+    let (fun, operand_tp) = ord_builtin_for(tp);
     crate::typeclasses::make_binary_builtin(fun, operand_tp)
 }
 
-/// Create the correct equality builtin for a given SIRType.
-fn make_equality_builtin(tp: &SIRType) -> SIR {
-    let (fun, operand_tp) = match tp {
+/// The equality builtin comparing values of a given SIRType, with its operand type.
+fn equality_builtin_for(tp: &SIRType) -> (DefaultFun, SIRType) {
+    match tp {
         SIRType::Integer => (DefaultFun::EqualsInteger, SIRType::Integer),
         SIRType::ByteString => (DefaultFun::EqualsByteString, SIRType::ByteString),
         SIRType::String => (DefaultFun::EqualsString, SIRType::String),
         _ => (DefaultFun::EqualsData, SIRType::Data),
-    };
+    }
+}
+
+/// Create the correct equality builtin for a given SIRType.
+fn make_equality_builtin(tp: &SIRType) -> SIR {
+    let (fun, operand_tp) = equality_builtin_for(tp);
     crate::typeclasses::make_binary_builtin(fun, operand_tp)
 }
 
