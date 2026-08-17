@@ -89,7 +89,7 @@ pub struct Binding {
     pub redirect_to_scalus: bool,
 }
 
-pub const SIR_VERSION: (i32, i32) = (5, 0);
+pub const SIR_VERSION: (i32, i32) = (6, 0);
 
 /// Compiler options passed to the Scalus backend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
