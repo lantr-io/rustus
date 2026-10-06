@@ -6,6 +6,7 @@ use validator::{Action, Config};
 
 use rustus_core::bytestring::ByteString;
 use rustus_core::data::{Data, ToData};
+use rustus_prelude::assoc_map::AssocMap;
 use rustus_prelude::builtins;
 use rustus_prelude::ledger::v1::*;
 use rustus_prelude::ledger::v3;
@@ -39,7 +40,7 @@ fn make_v3_ctx(
             withdrawals: SortedMap::empty(),
             valid_range,
             signatories: List::from_vec(signatories),
-            redeemers: SortedMap::empty(),
+            redeemers: AssocMap::empty(),
             data: SortedMap::empty(),
             id: TxId { hash: ByteString::from_hex("00") },
             votes: SortedMap::empty(),
