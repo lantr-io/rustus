@@ -83,3 +83,7 @@ Rustus finds the JAR in `scala-loader/loader/target/` when run from this reposit
 | `rustus-jvm/` | JNI bridge to Scalus |
 | `scala-loader/` | Scala side: reads the SIR JSON and drives Scalus; builds the JAR |
 | `examples/` | Validators with tests, plus smaller development examples |
+
+## License
+
+Apache License 2.0, the same as Scalus. See [LICENSE](LICENSE).
