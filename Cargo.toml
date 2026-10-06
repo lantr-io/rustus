@@ -99,6 +99,10 @@ name = "uplc-constr-tests"
 path = "examples/test-starting/test_uplc_constr_eval.rs"
 
 [[test]]
+name = "eq-tests"
+path = "examples/test-starting/test_eq_eval.rs"
+
+[[test]]
 name = "bigint-tests"
 path = "examples/test-starting/test_bigint_eval.rs"
 

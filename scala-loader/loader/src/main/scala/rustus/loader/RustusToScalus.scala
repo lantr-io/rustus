@@ -209,6 +209,13 @@ object RustusToScalus:
           anns = convertAnnotations(anns)
         )
 
+      case RSIR.And(a, b, anns) =>
+        SIR.And(
+          a = asAnnotated(convertSIR(a, symbolTable)),
+          b = asAnnotated(convertSIR(b, symbolTable)),
+          anns = convertAnnotations(anns)
+        )
+
       case RSIR.Builtin(builtinFun, tp, anns) =>
         val bf = DefaultFun.valueOf(builtinFun)
         SIR.Builtin(bf, convertSIRType(tp, symbolTable), convertAnnotations(anns))

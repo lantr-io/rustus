@@ -2,6 +2,7 @@ pub mod bytestring;
 pub mod constant;
 pub mod data;
 pub mod default_fun;
+pub mod eq;
 pub mod lower;
 pub mod module;
 pub mod pre_sir;

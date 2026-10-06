@@ -136,6 +136,7 @@ object RustusJsonCodec:
         tp: RSIRType,
         anns: RAnnotationsDecl
     )
+    case And(a: RSIR, b: RSIR, anns: RAnnotationsDecl)
     case Builtin(builtin_fun: String, tp: RSIRType, anns: RAnnotationsDecl)
     case Error(msg: RSIR, anns: RAnnotationsDecl)
     case Decl(data: RDataDecl, term: RSIR)
@@ -499,6 +500,12 @@ object RustusJsonCodec:
           t = parseSIR(obj("t")),
           f = parseSIR(obj("f")),
           tp = parseType(obj("tp")),
+          anns = parseAnnotationsDecl(obj("anns"))
+        )
+      case "And" =>
+        RSIR.And(
+          a = parseSIR(obj("a")),
+          b = parseSIR(obj("b")),
           anns = parseAnnotationsDecl(obj("anns"))
         )
       case "Builtin" =>

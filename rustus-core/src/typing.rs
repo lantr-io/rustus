@@ -204,6 +204,7 @@ pub fn sir_type(sir: &SIR) -> SIRType {
         SIR::Constr { tp, .. } => tp.clone(),
         SIR::Match { tp, .. } => tp.clone(),
         SIR::IfThenElse { tp, .. } => tp.clone(),
+        SIR::And { .. } => SIRType::Boolean,
         SIR::Builtin { tp, .. } => tp.clone(),
         SIR::Error { .. } => SIRType::TypeNothing,
         SIR::Decl { term, .. } => sir_type(term),
@@ -332,6 +333,11 @@ fn type_node(
                     }
                 }
             }
+        }
+
+        SIR::And { a, b, .. } => {
+            type_node(a, env, st, errors);
+            type_node(b, env, st, errors);
         }
 
         SIR::Select {
@@ -609,6 +615,10 @@ fn check_node(sir: &SIR, errors: &mut Vec<TypingError>) {
             check_node(cond, errors);
             check_node(t, errors);
             check_node(f, errors);
+        }
+        SIR::And { a, b, .. } => {
+            check_node(a, errors);
+            check_node(b, errors);
         }
         SIR::Select { scrutinee, tp, field, anns } => {
             if tp.has_unresolved() {

@@ -542,19 +542,38 @@ impl<'a> LowerCtx<'a> {
                         anns: anns.clone(),
                     };
                 }
-                // Concrete: resolve from operand type, selecting through one_element
-                // wrappers so the builtin is applied to values of the type it expects
+                // Concrete: emit what the Scalus compiler emits. Its `==` is a builtin on
+                // the primitives and an if-chain on booleans; any other type gets its
+                // `===`, the type's Eq instance applied to both operands.
                 let left_tp = crate::typing::sir_type(&left_sir);
-                let (resolved_tp, path) = one_element_unwrap_path(&left_tp, self.ctx);
-                let (builtin, operand_tp) = equality_builtin_for(&resolved_tp);
-                make_builtin_apply2(
-                    builtin,
-                    operand_tp,
-                    SIRType::Boolean,
-                    apply_unwrap_path(left_sir, &path),
-                    apply_unwrap_path(right_sir, &path),
-                    anns,
-                )
+                if left_tp == SIRType::Boolean {
+                    return crate::eq::bool_equals(left_sir, right_sir, anns);
+                }
+                let is_primitive = matches!(
+                    left_tp,
+                    SIRType::Integer | SIRType::ByteString | SIRType::String | SIRType::Data
+                );
+                let instance = if is_primitive {
+                    None
+                } else {
+                    crate::eq::instance(&left_tp, &self.ctx.data_decls)
+                };
+                match instance {
+                    Some(instance) => {
+                        crate::eq::apply(instance, &left_tp, left_sir, right_sir, anns)
+                    }
+                    None => {
+                        let (builtin, operand_tp) = equality_builtin_for(&left_tp);
+                        make_builtin_apply2(
+                            builtin,
+                            operand_tp,
+                            SIRType::Boolean,
+                            left_sir,
+                            right_sir,
+                            anns,
+                        )
+                    }
+                }
             }
             BinOp::Add => make_builtin_apply2(
                 DefaultFun::AddInteger,
@@ -1046,7 +1065,7 @@ fn peel_fun_result(tp: &SIRType) -> SIRType {
 }
 
 /// Build `Apply(Apply(Builtin(fun), left), right)` with proper types.
-fn make_builtin_apply2(
+pub(crate) fn make_builtin_apply2(
     fun: DefaultFun,
     operand_tp: SIRType,
     result_tp: SIRType,

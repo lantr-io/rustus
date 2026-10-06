@@ -105,6 +105,11 @@ pub enum SIR {
         tp: SIRType,
         anns: AnnotationsDecl,
     },
+    And {
+        a: Box<SIR>,
+        b: Box<SIR>,
+        anns: AnnotationsDecl,
+    },
     Builtin {
         builtin_fun: DefaultFun,
         tp: SIRType,

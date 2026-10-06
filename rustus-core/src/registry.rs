@@ -205,6 +205,9 @@ pub fn build_module(name: &str) -> Module {
         (e.builder)(&mut ctx);
     }
 
+    // Eq instances that the functions compare with, as bindings the linker can resolve
+    crate::eq::add_referenced_instances(&mut ctx.bindings, &ctx.data_decls);
+
     let mut module = ctx.into_module(name);
 
     // Pass 3: renumber TypeVar opt_ids to be globally unique
