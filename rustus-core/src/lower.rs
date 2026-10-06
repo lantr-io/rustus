@@ -649,18 +649,7 @@ impl<'a> LowerCtx<'a> {
 
                 if let Some(decl) = decl {
                     // Find the constructor and bind variables
-                    let constr = decl
-                        .constructors
-                        .iter()
-                        .find(|c| c.name == *constr_name)
-                        .or_else(|| {
-                            let suffix = constr_name.rsplit("::").next().unwrap_or(constr_name);
-                            decl.constructors
-                                .iter()
-                                .find(|c| c.name.ends_with(&format!("$.{}", suffix)))
-                        });
-
-                    if let Some(constr) = constr {
+                    if let Some(constr) = find_constr(decl, constr_name) {
                         for (i, binding_name) in bindings.iter().enumerate() {
                             if binding_name == "_" {
                                 continue;
@@ -719,6 +708,12 @@ impl<'a> LowerCtx<'a> {
         // Find the DataDecl
         let decl = find_data_decl_by_name(type_name, &self.ctx.data_decls, self.type_dict);
 
+        // Scalus looks the constructor up by its declared name, not the Rust path.
+        let name = decl
+            .and_then(|d| find_constr(d, constr_name))
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| constr_name.to_string());
+
         let (data, tp) = if let Some(decl) = decl {
             let tp = if decl.constructors.len() == 1 {
                 SIRType::CaseClass {
@@ -750,7 +745,7 @@ impl<'a> LowerCtx<'a> {
         };
 
         SIR::Constr {
-            name: constr_name.to_string(),
+            name,
             data,
             args: lowered_args,
             tp,
@@ -1335,6 +1330,23 @@ fn find_data_decl_by_name<'a>(
         }
     }
     None
+}
+
+/// Find a constructor by the path Rust source names it with (`Type::Variant`).
+/// A declaration with a Scalus-style name calls its constructors `<decl>$.<Variant>`.
+fn find_constr<'a>(
+    decl: &'a DataDecl,
+    constr_name: &str,
+) -> Option<&'a crate::sir_type::ConstrDecl> {
+    decl.constructors
+        .iter()
+        .find(|c| c.name == constr_name)
+        .or_else(|| {
+            let suffix = constr_name.rsplit("::").next().unwrap_or(constr_name);
+            decl.constructors
+                .iter()
+                .find(|c| c.name.ends_with(&format!("$.{}", suffix)))
+        })
 }
 
 /// Find a DataDecl for a type, using the scrutinee type to find the decl.
