@@ -102,6 +102,7 @@ pub fn derive_to_data_impl(input: TokenStream) -> TokenStream {
     let sir_name = rattrs.name.unwrap_or_else(|| name_str.clone());
     let is_one_element = rattrs.repr.as_deref() == Some("one_element");
     let is_list = rattrs.repr.as_deref() == Some("list");
+    let is_uplc_constr = rattrs.repr.as_deref() == Some("uplc_constr");
     let ginfo = GenericsInfo::from_generics(&input.generics);
 
     let (to_data_impl, has_sir_type_impl) = match &input.data {
@@ -111,7 +112,7 @@ pub fn derive_to_data_impl(input: TokenStream) -> TokenStream {
             } else {
                 gen_enum_to_data_arms(name, data_enum)
             };
-            let sir_type_impl = gen_enum_has_sir_type(name, &sir_name, data_enum, &ginfo);
+            let sir_type_impl = gen_enum_has_sir_type(name, &sir_name, data_enum, &ginfo, is_uplc_constr);
             (to_data_arms, sir_type_impl)
         }
         Data::Struct(data_struct) => {
@@ -121,7 +122,7 @@ pub fn derive_to_data_impl(input: TokenStream) -> TokenStream {
             } else {
                 gen_struct_to_data_body(data_struct, is_one_element)
             };
-            let sir_type_impl = gen_struct_has_sir_type(name, &sir_name, data_struct, &ginfo, is_one_element, is_map);
+            let sir_type_impl = gen_struct_has_sir_type(name, &sir_name, data_struct, &ginfo, is_one_element, is_map, is_uplc_constr);
             (to_data_body, sir_type_impl)
         }
         Data::Union(_) => {
@@ -580,11 +581,13 @@ fn gen_enum_has_sir_type(
     sir_name: &str,
     data_enum: &syn::DataEnum,
     ginfo: &GenericsInfo,
+    is_uplc_constr: bool,
 ) -> TokenStream2 {
     let is_scalus_style = sir_name.contains('.');
     let tv_map = ginfo.type_var_sir_types();
     let type_var_decls = ginfo.type_var_decls();
     let type_app_args = ginfo.type_application_args();
+    let decl_annotations = gen_uplc_repr_annotations(is_uplc_constr.then_some("UplcConstr"));
 
     let constr_decls: Vec<TokenStream2> = data_enum
         .variants
@@ -636,7 +639,7 @@ fn gen_enum_has_sir_type(
                         name: #sir_name.to_string(),
                         constructors: vec![#(#constr_decls),*],
                         type_params: vec![],
-                        annotations: rustus_core::module::AnnotationsDecl::empty(),
+                        annotations: #decl_annotations,
                     })
                 }
             }
@@ -656,7 +659,7 @@ fn gen_enum_has_sir_type(
                         name: #sir_name.to_string(),
                         constructors: vec![#(#constr_decls),*],
                         type_params: vec![#(#type_var_decls),*],
-                        annotations: rustus_core::module::AnnotationsDecl::empty(),
+                        annotations: #decl_annotations,
                     })
                 }
             }
@@ -673,43 +676,23 @@ fn gen_struct_has_sir_type(
     ginfo: &GenericsInfo,
     is_one_element: bool,
     is_map: bool,
+    is_uplc_constr: bool,
 ) -> TokenStream2 {
     let tv_map = ginfo.type_var_sir_types();
     let type_var_decls = ginfo.type_var_decls();
     let type_app_args = ginfo.type_application_args();
     let params = gen_type_bindings_for_fields_generic(&data_struct.fields, &tv_map);
 
-    // UplcRepr annotation: maps repr attribute to Scalus representation name.
-    // These string values must match the case names that
-    // `scalus.compiler.sir.lowering.typegens.SirTypeUplcGenerator.resolveUplcRepresentation`
-    // dispatches on.
     let uplc_repr_name = if is_one_element {
         Some("ProductCaseOneElement")
     } else if is_map {
         Some("PackedDataMap")
+    } else if is_uplc_constr {
+        Some("UplcConstr")
     } else {
         None
     };
-    let decl_annotations = if let Some(repr_name) = uplc_repr_name {
-        quote! {
-            {
-                let mut __anns = rustus_core::module::AnnotationsDecl::empty();
-                __anns.data.insert(
-                    "uplcRepr".to_string(),
-                    rustus_core::sir::SIR::Const {
-                        uplc_const: rustus_core::constant::UplcConstant::String {
-                            value: #repr_name.to_string(),
-                        },
-                        tp: rustus_core::sir_type::SIRType::String,
-                        anns: rustus_core::module::AnnotationsDecl::empty(),
-                    },
-                );
-                __anns
-            }
-        }
-    } else {
-        quote! { rustus_core::module::AnnotationsDecl::empty() }
-    };
+    let decl_annotations = gen_uplc_repr_annotations(uplc_repr_name);
 
     if ginfo.is_empty() {
         quote! {
@@ -767,6 +750,36 @@ fn gen_struct_has_sir_type(
                     })
                 }
             }
+        }
+    }
+}
+
+// --- Helper: UplcRepr annotation ---
+
+/// Annotations for a DataDecl: empty, or carrying `uplcRepr` when the `repr` attribute
+/// selects a Scalus representation.
+///
+/// `repr_name` must be one of the case names that
+/// `scalus.compiler.sir.lowering.typegens.SirTypeUplcGenerator.resolveUplcRepresentation`
+/// dispatches on.
+fn gen_uplc_repr_annotations(repr_name: Option<&str>) -> TokenStream2 {
+    let Some(repr_name) = repr_name else {
+        return quote! { rustus_core::module::AnnotationsDecl::empty() };
+    };
+    quote! {
+        {
+            let mut __anns = rustus_core::module::AnnotationsDecl::empty();
+            __anns.data.insert(
+                "uplcRepr".to_string(),
+                rustus_core::sir::SIR::Const {
+                    uplc_const: rustus_core::constant::UplcConstant::String {
+                        value: #repr_name.to_string(),
+                    },
+                    tp: rustus_core::sir_type::SIRType::String,
+                    anns: rustus_core::module::AnnotationsDecl::empty(),
+                },
+            );
+            __anns
         }
     }
 }
@@ -916,7 +929,7 @@ fn gen_onchain_partial_eq(
 /// Parsed rustus attributes from `#[rustus(name = "...", repr = "...")]`
 struct RustusAttrs {
     name: Option<String>,
-    repr: Option<String>, // "one_element", "product", "sum"
+    repr: Option<String>, // "one_element", "list", "map", "uplc_constr"
 }
 
 fn parse_rustus_attrs(attrs: &[syn::Attribute]) -> RustusAttrs {

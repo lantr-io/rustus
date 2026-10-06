@@ -95,6 +95,10 @@ name = "list-at-tests"
 path = "examples/test-starting/test_list_at_eval.rs"
 
 [[test]]
+name = "uplc-constr-tests"
+path = "examples/test-starting/test_uplc_constr_eval.rs"
+
+[[test]]
 name = "pubkey-validator-tests"
 path = "examples/pubkey-validator/tests.rs"
 
