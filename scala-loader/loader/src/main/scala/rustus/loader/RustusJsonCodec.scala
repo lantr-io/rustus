@@ -529,7 +529,7 @@ object RustusJsonCodec:
   // --- Shared BigInt parsing for num-bigint serde format ---
 
   /** Parse a BigInt from num-bigint serde format: Number, String, or [sign, [digit, ...]].
-    * sign: 0=NoSign, 1=Plus, 2=Minus; digits are u32 values in little-endian order.
+    * sign: -1=Minus, 0=NoSign, 1=Plus; digits are u32 values in little-endian order.
     */
   private def parseNumBigInt(v: Any): BigInt = v match
     case s: String => BigInt(s)
@@ -543,7 +543,7 @@ object RustusJsonCodec:
         var result = BigInt(0)
         for (d, i) <- digits.zipWithIndex do
           result = result + (BigInt(d) << (32 * i))
-        if sign == 2 then -result else result
+        if sign < 0 then -result else result
     case other => throw new RuntimeException(s"Unexpected BigInt value: $other")
 
   // --- Data parsing for eval() arguments ---
