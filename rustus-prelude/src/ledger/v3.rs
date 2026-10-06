@@ -6,6 +6,7 @@
 use rustus_core::num_bigint::BigInt;
 
 use super::v1::{self, Credential, DatumHash, Hash, Interval, Lovelace, PolicyId, PubKeyHash, TxId, TxOutRef, Value};
+use crate::assoc_map::AssocMap;
 use crate::list::List;
 use crate::option::Option;
 use crate::sorted_map::SortedMap;
@@ -200,7 +201,7 @@ pub struct TxInfo {
     pub withdrawals: SortedMap<Credential, Lovelace>,
     pub valid_range: Interval,
     pub signatories: List<PubKeyHash>,
-    pub redeemers: SortedMap<ScriptPurpose, Redeemer>,
+    pub redeemers: AssocMap<ScriptPurpose, Redeemer>,
     pub data: SortedMap<DatumHash, Datum>,
     pub id: TxId,
     pub votes: SortedMap<Voter, SortedMap<GovernanceActionId, Vote>>,
