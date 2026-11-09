@@ -1,6 +1,6 @@
-ThisBuild / scalaVersion := "3.3.7"
+ThisBuild / scalaVersion := "3.3.9"
 
-val scalusVersion = "1.3.0"
+val scalusVersion = "1.5.0"
 
 val commonSettings = Seq(
   libraryDependencies += "org.scalus" %% "scalus" % scalusVersion,

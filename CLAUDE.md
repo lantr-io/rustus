@@ -36,7 +36,7 @@ cd scala-loader && sbt "tests/run <path-to.sir.json>"
 
 `cargo test` runs the root package only; the member crates have no tests of their own. Tests and examples live at non-standard paths under `examples/`, so each new one needs a `[[test]]` / `[[example]]` entry in the root `Cargo.toml`.
 
-The JAR is looked up in this order: `$RUSTUS_JAR`, `scala-loader/loader/target/scala-3.3.7/rustus-scalus.jar`, `~/.rustus/lib/rustus-scalus.jar`.
+The JAR is looked up in this order: `$RUSTUS_JAR`, `scala-loader/loader/target/scala-3.3.9/rustus-scalus.jar`, `~/.rustus/lib/rustus-scalus.jar`.
 
 ## Architecture
 

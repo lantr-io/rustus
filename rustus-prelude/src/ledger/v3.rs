@@ -97,6 +97,15 @@ pub struct ProtocolVersion {
     pub pv_minor: BigInt,
 }
 
+/// Constitution — the guardrail script; the anchor is omitted.
+/// A one-field constructor, as in Plutus: `Constr 0 [Maybe ScriptHash]`, not the `Maybe` itself.
+/// scalus name: `scalus.cardano.onchain.plutus.v3.Constitution`
+#[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
+#[rustus(name = "scalus.cardano.onchain.plutus.v3.Constitution")]
+pub struct Constitution {
+    pub constitution_script: Option<Hash>,
+}
+
 /// GovernanceAction — 7 variants.
 /// scalus name: `scalus.cardano.onchain.plutus.v3.GovernanceAction`
 /// Note: fields that need SortedMap use Datum (raw Data) for now.
@@ -108,7 +117,7 @@ pub enum GovernanceAction {
     TreasuryWithdrawals { withdrawals: Datum, constitution_script: Option<Hash> },
     NoConfidence { id: Option<GovernanceActionId> },
     UpdateCommittee { id: Option<GovernanceActionId>, removed_members: List<ColdCommitteeCredential>, added_members: Datum, new_quorum: Datum },
-    NewConstitution { id: Option<GovernanceActionId>, constitution: Option<Hash> },
+    NewConstitution { id: Option<GovernanceActionId>, constitution: Constitution },
     InfoAction,
 }
 

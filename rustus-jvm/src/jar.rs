@@ -24,9 +24,9 @@ pub fn find_jar() -> Result<PathBuf, RustusError> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let dev_candidates = [
         PathBuf::from(manifest_dir)
-            .join("../scala-loader/loader/target/scala-3.3.7/rustus-scalus.jar"),
+            .join("../scala-loader/loader/target/scala-3.3.9/rustus-scalus.jar"),
         PathBuf::from(manifest_dir)
-            .join("../scala-loader/loader/target/scala-3.3.7/rustus-scala-loader-assembly-0.1.0-SNAPSHOT.jar"),
+            .join("../scala-loader/loader/target/scala-3.3.9/rustus-scala-loader-assembly-0.1.0-SNAPSHOT.jar"),
     ];
     for candidate in &dev_candidates {
         if candidate.exists() {
