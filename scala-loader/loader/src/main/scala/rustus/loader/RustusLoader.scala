@@ -6,6 +6,7 @@ import scalus.cardano.ledger.MajorProtocolVersion
 import scalus.compiler.sir.*
 import scalus.compiler.sir.linking.{SIRLinker, SIRLinkerOptions}
 import scalus.compiler.sir.lowering.SirToUplcV3Lowering
+import scalus.compiler.sir.transform.EraseSpecifications
 import scalus.uplc.{Constant, DeBruijn, Program => UplcProgram, Term}
 import scalus.uplc.eval.*
 
@@ -46,13 +47,7 @@ object RustusLoader:
 
         val opts = rmodule.options
 
-        val linkerOptions = SIRLinkerOptions(
-          useUniversalDataConversion = true,
-          printErrors = true,
-          debugLevel = 0
-        )
-        val linker = new SIRLinker(linkerOptions, allSupportModules)
-        val linkedSir = linker.link(binding.value, SIRPosition.empty)
+        val linkedSir = link(binding.value, allSupportModules)
         val lowering = SirToUplcV3Lowering(
           linkedSir,
           generateErrorTraces = opts.generate_error_traces,
@@ -65,6 +60,25 @@ object RustusLoader:
 
       case None =>
         throw new RuntimeException("No main binding found in module")
+
+  /** Links `main` against `supportModules`, then erases the clauses of Scalus's `Spec` module
+    * (`Spec.expects`, `Spec.ensures`, `ensuring`), as Scalus's own `UplcPipeline` does before
+    * lowering. Without that step a clause in a linked Scalus function would be compiled into the
+    * script and evaluated on-chain.
+    */
+  def link(main: SIR, supportModules: Map[String, Module]): SIR =
+    val linkerOptions = SIRLinkerOptions(
+      useUniversalDataConversion = true,
+      printErrors = true,
+      debugLevel = 0
+    )
+    val linked = new SIRLinker(linkerOptions, supportModules).link(main, SIRPosition.empty)
+    EraseSpecifications(linked)
+
+  /** The version of the Scalus library this JAR was built with.
+    * Called from Rust via JNI, which refuses a JAR built against another Scalus version.
+    */
+  def scalusVersion: String = scalus.utils.BuildInfo.version
 
 /** Holds a compiled UPLC term with annotations for source mapping.
   * Rust holds a JNI GlobalRef to instances of this class.

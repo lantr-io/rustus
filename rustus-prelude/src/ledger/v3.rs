@@ -108,15 +108,16 @@ pub struct Constitution {
 
 /// GovernanceAction — 7 variants.
 /// scalus name: `scalus.cardano.onchain.plutus.v3.GovernanceAction`
-/// Note: fields that need SortedMap use Datum (raw Data) for now.
+/// `parameters` is raw Data, as Scalus's `ChangedParameters` is. `new_quorum` is raw Data
+/// because the prelude has no `Rational` yet; it holds Scalus's `Rational(numerator, denominator)`.
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v3.GovernanceAction")]
 pub enum GovernanceAction {
     ParameterChange { id: Option<GovernanceActionId>, parameters: Datum, constitution_script: Option<Hash> },
     HardForkInitiation { id: Option<GovernanceActionId>, protocol_version: ProtocolVersion },
-    TreasuryWithdrawals { withdrawals: Datum, constitution_script: Option<Hash> },
+    TreasuryWithdrawals { withdrawals: SortedMap<Credential, Lovelace>, constitution_script: Option<Hash> },
     NoConfidence { id: Option<GovernanceActionId> },
-    UpdateCommittee { id: Option<GovernanceActionId>, removed_members: List<ColdCommitteeCredential>, added_members: Datum, new_quorum: Datum },
+    UpdateCommittee { id: Option<GovernanceActionId>, removed_members: List<ColdCommitteeCredential>, added_members: SortedMap<ColdCommitteeCredential, BigInt>, new_quorum: Datum },
     NewConstitution { id: Option<GovernanceActionId>, constitution: Constitution },
     InfoAction,
 }
@@ -197,7 +198,6 @@ pub struct TxInInfo {
 
 /// TxInfo V3.
 /// scalus name: `scalus.cardano.onchain.plutus.v3.TxInfo`
-/// Fields needing SortedMap use Datum (raw Data) until SortedMap is implemented.
 #[derive(Debug, Clone, PartialEq, rustus_macros::ToData, rustus_macros::FromData)]
 #[rustus(name = "scalus.cardano.onchain.plutus.v3.TxInfo")]
 pub struct TxInfo {

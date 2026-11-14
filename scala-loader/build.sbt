@@ -2,6 +2,16 @@ ThisBuild / scalaVersion := "3.3.9"
 
 val scalusVersion = "1.5.0"
 
+// The loader uses these directly. Keep them at or above what Scalus brings in, or sbt silently
+// evicts them to Scalus's versions: check `sbt loader/evicted` after a Scalus upgrade.
+val jsoniterVersion = "2.41.6"
+val bouncyCastleVersion = "1.86"
+
+val jsoniterDeps = Seq(
+  "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
+  "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % "compile",
+)
+
 val commonSettings = Seq(
   libraryDependencies += "org.scalus" %% "scalus" % scalusVersion,
   autoCompilerPlugins := true,
@@ -14,15 +24,13 @@ lazy val loader = project.in(file("loader")).settings(
   name := "rustus-scala-loader",
   assembly / mainClass := Some("rustus.loader.Main"),
   assembly / assemblyJarName := "rustus-scalus.jar",
+  // Outside target/scala-<version>/, so rustus-jvm finds it whatever the Scala version.
+  assembly / assemblyOutputPath := target.value / (assembly / assemblyJarName).value,
   assembly / assemblyMergeStrategy := {
     case PathList("META-INF", _*) => MergeStrategy.discard
     case _ => MergeStrategy.first
   },
-  libraryDependencies ++= Seq(
-    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % "2.38.8",
-    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % "2.38.8" % "compile",
-    "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
-  ),
+  libraryDependencies ++= jsoniterDeps :+ ("org.bouncycastle" % "bcprov-jdk18on" % bouncyCastleVersion),
 )
 
 // Scala examples: scalus validators that are analogs of the Rust validators
@@ -35,10 +43,7 @@ lazy val examples = project.in(file("examples")).settings(
 lazy val tests = project.in(file("tests")).settings(
   commonSettings,
   name := "rustus-scala-tests",
-  libraryDependencies ++= Seq(
-    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % "2.38.8",
-    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % "2.38.8" % "compile",
-  ),
+  libraryDependencies ++= jsoniterDeps,
 ).dependsOn(loader, examples)
 
 lazy val root = project.in(file(".")).aggregate(loader, examples, tests)

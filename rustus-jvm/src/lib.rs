@@ -1,6 +1,7 @@
 mod jar;
 mod jvm;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use jni::objects::{GlobalRef, JString, JValueGen};
@@ -30,6 +31,9 @@ pub enum RustusError {
     #[error("uber-JAR not found: {0}")]
     JarNotFound(String),
 
+    #[error("uber-JAR is stale: {0}")]
+    JarVersionMismatch(String),
+
     #[error("IO error: {0}")]
     Io(String),
 }
@@ -38,22 +42,40 @@ pub enum RustusError {
 /// Created once and cached for the process lifetime.
 pub struct ScalusVM {
     jvm: Arc<JavaVM>,
+    /// Why the JAR cannot be used, if it was built against another Scalus version.
+    /// Kept rather than returned from `new`: a process can create only one JVM, so a
+    /// failed `new` could not be retried, and every later call would fail obscurely.
+    stale_jar: Option<String>,
 }
+
+/// `scalusVersion` from scala-loader/build.sbt, read by build.rs. None outside this
+/// repository, where the JAR's version is not checked.
+const EXPECTED_SCALUS_VERSION: Option<&str> = option_env!("RUSTUS_SCALUS_VERSION");
 
 impl ScalusVM {
     /// Create a new JVM instance with the Scalus uber-JAR on the classpath.
     ///
     /// Locates libjvm via JAVA_HOME or `which java`.
     /// Locates the uber-JAR via RUSTUS_JAR env, development path, or ~/.rustus/lib/.
+    /// A JAR built against a Scalus version other than build.sbt's is not refused here,
+    /// but every `compile` then fails with `RustusError::JarVersionMismatch`.
     pub fn new() -> Result<Self, RustusError> {
         jvm::find_libjvm()?; // validate JVM exists before attempting to create
         let jar_path = jar::find_jar()?;
         let jvm = jvm::create_jvm(&jar_path)?;
-        Ok(ScalusVM { jvm: Arc::new(jvm) })
+        let stale_jar = EXPECTED_SCALUS_VERSION
+            .and_then(|expected| stale_jar_reason(&jvm, &jar_path, expected));
+        Ok(ScalusVM {
+            jvm: Arc::new(jvm),
+            stale_jar,
+        })
     }
 
     /// Compile a SIR Module to a Validator by calling Scalus via JNI.
     pub fn compile(&self, module: &Module) -> Result<Validator, RustusError> {
+        if let Some(reason) = &self.stale_jar {
+            return Err(RustusError::JarVersionMismatch(reason.clone()));
+        }
         let json = serde_json::to_string(module)
             .map_err(|e| RustusError::Serialization(e.to_string()))?;
 
@@ -256,6 +278,40 @@ impl EvalResult {
 
     pub fn failed(&self) -> bool {
         !self.success
+    }
+}
+
+/// Why the loader JAR at `jar` cannot be used with this build, or None if it was built
+/// against Scalus `expected`.
+fn stale_jar_reason(jvm: &JavaVM, jar: &Path, expected: &str) -> Option<String> {
+    let rebuild = "rebuild it with: cd scala-loader && sbt loader/assembly";
+    let mut env = match jvm.attach_current_thread() {
+        Ok(env) => env,
+        Err(e) => return Some(format!("cannot check {}: {e}", jar.display())),
+    };
+    let found = env
+        .call_static_method(
+            "rustus/loader/RustusLoader",
+            "scalusVersion",
+            "()Ljava/lang/String;",
+            &[],
+        )
+        .and_then(|value| value.l())
+        .and_then(|obj| env.get_string(&JString::from(obj)).map(String::from));
+    match found {
+        Ok(found) if found == expected => None,
+        Ok(found) => Some(format!(
+            "{} is built against Scalus {found}, but scala-loader/build.sbt pins {expected}; {rebuild}",
+            jar.display()
+        )),
+        Err(_) => {
+            // A JAR from before this check has no RustusLoader.scalusVersion.
+            let _ = env.exception_clear();
+            Some(format!(
+                "{} does not report its Scalus version (expected {expected}); {rebuild}",
+                jar.display()
+            ))
+        }
     }
 }
 

@@ -3,7 +3,6 @@ package rustus.loader
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import rustus.loader.RustusJsonCodec.*
 import scalus.compiler.sir.*
-import scalus.compiler.sir.linking.{SIRLinker, SIRLinkerOptions}
 import scalus.compiler.sir.lowering.SirToUplcV3Lowering
 import scalus.show
 import scalus.uplc.*
@@ -61,13 +60,7 @@ object Main:
               }
 
           // Use scalus linker to resolve ExternalVar references
-          val linkerOptions = SIRLinkerOptions(
-            useUniversalDataConversion = true,
-            printErrors = true,
-            debugLevel = 0
-          )
-          val linker = new SIRLinker(linkerOptions, supportModules)
-          val linkedSir = linker.link(binding.value, SIRPosition.empty)
+          val linkedSir = RustusLoader.link(binding.value, supportModules)
 
           println("Linked SIR:")
           println(scalus.show(linkedSir))

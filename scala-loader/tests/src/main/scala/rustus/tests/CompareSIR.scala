@@ -2,12 +2,11 @@ package rustus.tests
 
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import rustus.loader.RustusJsonCodec.*
-import rustus.loader.RustusToScalus
+import rustus.loader.{RustusLoader, RustusToScalus}
 import scalus.*
 import scalus.compiler.Options
 import scalus.compiler.sir.*
 import scalus.compiler.sir.TargetLoweringBackend
-import scalus.compiler.sir.linking.{SIRLinker, SIRLinkerOptions}
 import scalus.compiler.sir.lowering.SirToUplcV3Lowering
 import scalus.uplc.*
 import scalus.uplc.eval.*
@@ -72,13 +71,7 @@ object CompareSIR:
               modName -> Module(module.version, modName, false, None, bindings)
             }
 
-        val linkerOptions = SIRLinkerOptions(
-          useUniversalDataConversion = true,
-          printErrors = true,
-          debugLevel = 0
-        )
-        val linker = new SIRLinker(linkerOptions, supportModules)
-        val linkedSir = linker.link(binding.value, SIRPosition.empty)
+        val linkedSir = RustusLoader.link(binding.value, supportModules)
 
         println(s"\n--- Rust linked SIR ---")
         println(scalus.show(linkedSir))

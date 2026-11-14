@@ -20,18 +20,12 @@ pub fn find_jar() -> Result<PathBuf, RustusError> {
         )));
     }
 
-    // 2. Relative to crate manifest dir (development: ../scala-loader/loader/target/...)
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let dev_candidates = [
-        PathBuf::from(manifest_dir)
-            .join("../scala-loader/loader/target/scala-3.3.9/rustus-scalus.jar"),
-        PathBuf::from(manifest_dir)
-            .join("../scala-loader/loader/target/scala-3.3.9/rustus-scala-loader-assembly-0.1.0-SNAPSHOT.jar"),
-    ];
-    for candidate in &dev_candidates {
-        if candidate.exists() {
-            return Ok(candidate.clone());
-        }
+    // 2. Relative to crate manifest dir (development). build.sbt writes the JAR outside
+    //    target/scala-<version>/, so this path does not change with the Scala version.
+    let dev_jar = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../scala-loader/loader/target/rustus-scalus.jar");
+    if dev_jar.exists() {
+        return Ok(dev_jar);
     }
 
     // 3. Home directory

@@ -99,6 +99,10 @@ name = "uplc-constr-tests"
 path = "examples/test-starting/test_uplc_constr_eval.rs"
 
 [[test]]
+name = "ledger-data-tests"
+path = "examples/test-starting/test_ledger_data.rs"
+
+[[test]]
 name = "pubkey-validator-tests"
 path = "examples/pubkey-validator/tests.rs"
 
