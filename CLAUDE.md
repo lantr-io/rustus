@@ -16,8 +16,8 @@ Requires a Rust toolchain (edition 2024), a JDK, and sbt.
 export JAVA_HOME=$(/usr/libexec/java_home)
 
 # Build the Scalus uber-JAR. Needed by anything that calls rustus::compile_module
-# (all cargo tests, the validator examples). Rebuild after changing
-# scala-loader/loader or the Scalus version — cargo does not track it.
+# (all cargo tests, the validator examples). Rebuild after changing build.sbt or
+# scala-loader/loader/src: cargo does not rebuild it, but refuses a stale one.
 cd scala-loader && sbt loader/assembly
 
 cargo build
@@ -30,13 +30,15 @@ cargo run --example test_typing      # most scratch examples build SIR Rust-side
 
 ./run-e2e.sh                         # example `validator` -> my_validator.sir.json -> sbt loader/run
 
-# Side-by-side: Scalus-compiled PubKeyValidator vs. a Rust-generated SIR JSON
-cd scala-loader && sbt "tests/run <path-to.sir.json>"
+# Side-by-side: Scalus-compiled PubKeyValidator vs. the Rust one. Fails unless both
+# accept the owner's signature and reject anyone else's.
+cargo run --example pubkey-validator -- pubkey_validator.sir.json
+cd scala-loader && sbt "tests/run ../pubkey_validator.sir.json"
 ```
 
 `cargo test` runs the root package only; the member crates have no tests of their own. Tests and examples live at non-standard paths under `examples/`, so each new one needs a `[[test]]` / `[[example]]` entry in the root `Cargo.toml`.
 
-The JAR is looked up in this order: `$RUSTUS_JAR`, `scala-loader/loader/target/rustus-scalus.jar`, `~/.rustus/lib/rustus-scalus.jar`. Whichever is found must be built against the Scalus version in `build.sbt`; otherwise every compile fails with `RustusError::JarVersionMismatch`.
+The JAR is looked up in this order: `$RUSTUS_JAR`, `scala-loader/loader/target/rustus-scalus.jar`, `~/.rustus/lib/rustus-scalus.jar`. When `rustus-jvm` is built inside this repository, whichever is found must be built from this checkout's `scala-loader/build.sbt` and `scala-loader/loader/src/`, Scalus version included; otherwise every compile fails with `RustusError::JarVersionMismatch`. Built without `scala-loader/` beside it (or with a `scalusVersion` that is not a plain string literal, which build.rs warns about), the JAR is not checked, or not for its version.
 
 ## Architecture
 
@@ -46,7 +48,7 @@ A proc macro cannot resolve types, so compilation is split into three stages, ea
 
 **2. Builder time, inside the user's binary — `rustus-core`.** `registry::build_module(name)` runs every registered entry: type decls first, then functions. `lower.rs` converts `PreSIR` to `SIR` (resolving calls to `ExternalVar`, choosing `Equals*`/`LessThan*` builtins from operand types, threading typeclass arguments), then `typing.rs` renumbers type variables and fills in every `SIRType::Unresolved`. Typing errors here are only printed to stderr; `rustus::compile_module` (root `src/lib.rs`) is what turns leftover `Unresolved` types into an `Err`.
 
-**3. Scalus, over JNI — `rustus-jvm` + `scala-loader/loader`.** The `Module` is serialized with serde to JSON and handed to `RustusLoader.compile(String)`. `RustusJsonCodec` decodes it into `R*` mirror types, `RustusToScalus` converts those to real Scalus SIR, then `RustusLoader.link` (Scalus's `SIRLinker`, then `EraseSpecifications`) and `SirToUplcV3Lowering` produce the UPLC term. Rust holds the resulting `CompiledValidator` as a JNI global ref and calls `toFlat` / `toText` / `eval` / `scriptHash` on it (`Validator` in `rustus-jvm/src/lib.rs`). The JVM is created once per process.
+**3. Scalus, over JNI — `rustus-jvm` + `scala-loader/loader`.** The `Module` is serialized with serde to JSON and handed to `RustusLoader.compile(String)`. `RustusJsonCodec` decodes it into `R*` mirror types, `RustusToScalus` converts those to real Scalus SIR, then `RustusLoader.link` (Scalus's `SIRLinker`, then `EraseSpecifications`) and `RustusLoader.lower` (`SirToUplcV3Lowering`) produce the UPLC term. Rust holds the resulting `CompiledValidator` as a JNI global ref and calls `toFlat` / `toText` / `eval` / `scriptHash` on it (`Validator` in `rustus-jvm/src/lib.rs`). The JVM is created once per process.
 
 The root `rustus` crate is a facade re-exporting the three crates' public API. `rustus-prelude` holds the on-chain standard library: Scalus-compatible `List`, `Option`, `SortedMap`, `AssocMap`, ledger types (`ledger::v1`, `ledger::v3`), and `builtins`.
 
@@ -56,14 +58,15 @@ The root `rustus` crate is a facade re-exporting the three crates' public API. `
 - **The module name selects the entry point.** The loader takes as main the binding whose name equals the module name, falling back to the last binding without a `module_name`. `compile_module("htlc_validator")` therefore has to match the function name.
 - **The JSON shape is a three-way contract.** Changing the serde layout of `sir.rs`, `sir_type.rs`, `module.rs`, `constant.rs`, or `data.rs` requires matching edits in `RustusJsonCodec.scala` and `RustusToScalus.scala`, then a JAR rebuild.
 - **Scalus names are load-bearing.** Prelude types and functions carry Scalus's fully-qualified names (`#[rustus(name = "scalus.cardano.onchain.plutus.prelude.List", repr = "list")]`, `#[rustus_module("...prelude.List$")]`) so that Scalus's intrinsics and representation handling apply to them. `repr = "one_element"` / `"map"` / `"uplc_constr"` are emitted as `uplcRepr` annotations (`ProductCaseOneElement`, `PackedDataMap`, `UplcConstr`) whose strings must match what Scalus's `SirTypeUplcGenerator.resolveUplcRepresentation` dispatches on — check these on every Scalus upgrade.
-- **Version pins live in `scala-loader/build.sbt` only.** `rustus-jvm/build.rs` reads `scalusVersion` from it, and the JAR reports the Scalus it was built with (`RustusLoader.scalusVersion`), so after a bump the old JAR is refused until it is rebuilt. The jsoniter and BouncyCastle versions there must stay at or above what Scalus brings in, or sbt silently evicts them: check `sbt loader/evicted` on every Scalus upgrade.
-- **The loader bypasses Scalus's `UplcPipeline`.** It links and lowers itself, so a step Scalus adds to `UplcPipeline.run` (as 1.5.0 added `EraseSpecifications`) is skipped until it is added to `RustusLoader.link`, which `Main` and `CompareSIR` share — compare the two on every Scalus upgrade.
+- **Version pins live in `scala-loader/build.sbt` only.** The jsoniter and BouncyCastle versions there must stay at or above what Scalus brings in, or sbt silently evicts them: check `sbt loader/evicted` on every Scalus upgrade.
+- **A stale loader JAR is refused.** `rustus-jvm/build.rs` reads `scalusVersion` from `build.sbt` and hashes `build.sbt` plus `loader/src/`; `build.sbt` writes the same hash into the JAR (`scala-loader/project/LoaderFingerprint.scala`), and the JAR reports both (`RustusLoader.scalusVersion`, `loaderFingerprint`). The two hash implementations must stay identical, file selection and byte layout included, or every JAR is refused.
+- **The loader bypasses Scalus's `UplcPipeline`.** It links and lowers itself, so a step Scalus adds to `UplcPipeline.run` (as 1.5.0 added `EraseSpecifications`) is skipped until it is added to `RustusLoader.link` or `lower` — compare the two on every Scalus upgrade. `compile`, `Main` (`loader/run`) and `CompareSIR` (`tests/run`) all run `RustusLoader.convert`, `link` and `lower` in turn, the tools printing each stage.
 - **Macro output names `rustus_core::…` directly**, so a crate using `#[rustus::compile]` or the derives must depend on `rustus-core` itself, not only on `rustus`.
 - **`#[compile]` accepts a small Rust subset** — `let`, `match` on constructors or `_`, `if`, field access, calls, `+ - * == < <=`, unary `-`, `BigInt::from(<literal>)`, `FromData::from_data(&x).unwrap()`, `.to_data()`, `panic!`, `require!`; `&` and `*` are transparent. Anything else is a `compile_error!("#[compile] unsupported …")` from `rustus-macros/src/compile.rs`. Generic bounds `T: PartialEq` / `T: PartialOrd` become extra function arguments.
 - **Adding a UPLC builtin touches three files:** the Rust implementation in `rustus-prelude/src/builtins.rs`, the `resolve_builtin` table in `rustus-core/src/lower.rs`, and `DefaultFun` in `rustus-core/src/default_fun.rs`. Calls must be written with the `builtins::` prefix to be recognized.
 
 ## Debugging
 
-To inspect generated SIR without the JVM, call `rustus_core::registry::build_module(name)` and dump it with `serde_json::to_string_pretty` — the `examples/test-starting/` programs do this. `*.sir.json` files are gitignored. `sbt "loader/run <file.sir.json>"` prints the converted SIR, the linked SIR, and the UPLC for such a file.
+To inspect generated SIR without the JVM, build it with `rustus::build_checked_module(name, Default::default())`, which rejects leftover `Unresolved` types as `compile_module` does, and dump it with `serde_json::to_string_pretty`; `cargo run --example pubkey-validator -- <out.sir.json>` does this. The `examples/test-starting/` programs dump the unchecked `rustus_core::registry::build_module(name)`. `*.sir.json` files are gitignored. `sbt "loader/run <file.sir.json>"` prints the converted SIR, the linked SIR, and the UPLC for such a file.
 
 `examples/test-starting/` is the scratch corpus that exercises the SIR emitters; `compile_tests.rs` there drives a subset through Scalus so backend regressions surface in `cargo test`.

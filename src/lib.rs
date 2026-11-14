@@ -43,6 +43,22 @@ pub fn compile_module_with_options(
     name: &str,
     options: rustus_core::module::CompilerOptions,
 ) -> Result<Validator, RustusError> {
+    compile_built_module(&build_checked_module(name, options)?)
+}
+
+/// Compile a module from `build_checked_module`: for a caller that also wants the
+/// module itself, such as its SIR JSON, without building it twice.
+pub fn compile_built_module(module: &rustus_core::module::Module) -> Result<Validator, RustusError> {
+    scalus_vm()?.compile(module)
+}
+
+/// Build a named module and check that every type is resolved: the module that
+/// `compile_module_with_options` hands to Scalus. Serialized with serde_json, it is
+/// the SIR JSON that `sbt loader/run` and `sbt tests/run` read. Does not start the JVM.
+pub fn build_checked_module(
+    name: &str,
+    options: rustus_core::module::CompilerOptions,
+) -> Result<rustus_core::module::Module, RustusError> {
     let mut module = rustus_core::registry::build_module(name);
     // Verify no Unresolved types remain — catch bugs before sending to scalus
     for binding in &module.defs {
@@ -56,8 +72,7 @@ pub fn compile_module_with_options(
         }
     }
     module.options = options;
-    let vm = scalus_vm()?;
-    vm.compile(&module)
+    Ok(module)
 }
 
 /// Compile a named module and write UPLC flat-encoded bytes to a file.

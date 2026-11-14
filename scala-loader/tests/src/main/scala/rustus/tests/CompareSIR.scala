@@ -2,123 +2,120 @@ package rustus.tests
 
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import rustus.loader.RustusJsonCodec.*
-import rustus.loader.{RustusLoader, RustusToScalus}
+import rustus.loader.{CompiledValidator, RustusLoader}
 import scalus.*
-import scalus.compiler.Options
-import scalus.compiler.sir.*
-import scalus.compiler.sir.TargetLoweringBackend
-import scalus.compiler.sir.lowering.SirToUplcV3Lowering
 import scalus.uplc.*
+import scalus.uplc.builtin.ByteString.*
+import scalus.uplc.builtin.Data
+import scalus.uplc.builtin.Data.toData
 import scalus.uplc.eval.*
+import scalus.cardano.onchain.plutus.v1.*
+import scalus.cardano.onchain.plutus.prelude.List.{Cons, Nil}
 
-/** Compare Scala-compiled SIR with Rust-generated SIR for PubKeyValidator */
+/** Compares the Scalus-compiled PubKeyValidator with the Rust one.
+  *
+  * The Rust validator is compiled from its SIR JSON exactly as rustus compiles it, through
+  * `RustusLoader`'s `convert`, `link` and `lower`; each stage is printed as it completes. Write
+  * the JSON with `cargo run --example pubkey-validator -- <out.sir.json>`.
+  *
+  * Each validator is evaluated, on the VM for the protocol version it was compiled for, on a
+  * context signed by the owner, which it must accept, and on one signed by someone else, which
+  * it must reject. The run fails if either validator gets a case wrong.
+  */
 object CompareSIR:
 
-  given Options = Options(
-    targetLoweringBackend = TargetLoweringBackend.SirToUplcV3Lowering,
-    generateErrorTraces = true,
-    optimizeUplc = false,
-    debug = false
+  private val usage =
+    "Usage: CompareSIR <path-to-pubkey_validator.sir.json>\n" +
+      "Write the JSON with: cargo run --example pubkey-validator -- <path>"
+
+  private val owner = PubKeyHash(hex"deadbeef")
+
+  /** (case, the transaction's only signatory, whether the validator must accept) */
+  private val cases = List(
+    ("signed by the owner", owner, true),
+    ("signed by someone else", PubKeyHash(hex"cafe"), false)
   )
 
   def main(args: Array[String]): Unit =
-    // --- Part 1: Scala-compiled validator ---
+    val jsonPath = args match
+      case Array(path) => path
+      case _           => sys.error(usage)
+
     println("=" * 60)
     println("SCALA-COMPILED PubKeyValidator")
     println("=" * 60)
 
-    val scalaSir = rustus.examples.PubKeyValidatorCompiled.sir
     println(s"\n--- Scala SIR ---")
-    println(scalus.show(scalaSir))
+    println(scalus.show(rustus.examples.PubKeyValidatorCompiled.sir))
 
-    val scalaTerm = rustus.examples.PubKeyValidatorCompiled.uplcTerm
+    val scalaValidator = CompiledValidator(
+      rustus.examples.PubKeyValidatorCompiled.uplcTerm,
+      rustus.examples.PubKeyValidatorCompiled.options.targetProtocolVersion
+    )
     println(s"\n--- Scala UPLC ---")
-    println(scalaTerm.pretty.render(80))
+    println(scalaValidator.term.pretty.render(80))
 
     println(s"\n--- Scala Evaluation ---")
-    evaluateValidator(scalaTerm, "Scala")
+    val scalaWrong = evaluate(scalaValidator, "Scala")
 
-    // --- Part 2: Rust-generated validator ---
-    val jsonPath = args.headOption.getOrElse {
-      println("\nSkipping Rust comparison — no JSON path provided")
-      println("Usage: CompareSIR <path-to-pubkey_validator.sir.json>")
-      return
-    }
+    val rustValidator = compileRust(jsonPath)
+    println(s"\n--- Rust Evaluation ---")
+    val rustWrong = evaluate(rustValidator, "Rust")
 
+    val wrong = scalaWrong ++ rustWrong
+    println()
+    if wrong.nonEmpty then
+      sys.error(s"PubKeyValidator gets ${wrong.size} case(s) wrong: ${wrong.mkString("; ")}")
+    else println("OK: the Scala and the Rust validator both accept and reject as expected")
+
+  /** Compiles the Rust validator from `jsonPath` as `RustusLoader.compile` does, printing the
+    * result of each stage before running the next, so a failing stage still shows its input.
+    */
+  private def compileRust(jsonPath: String): CompiledValidator =
     println("\n" + "=" * 60)
     println("RUST-GENERATED PubKeyValidator")
     println("=" * 60)
 
     val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(jsonPath))
     val rmodule = readFromArray[RModule](bytes)
-    val result = RustusToScalus.transform(rmodule)
-    val module = result.module
+    val converted = RustusLoader.convert(rmodule)
 
-    for binding <- module.defs do
+    println(s"\n--- Rust SIR ---")
+    for binding <- converted.module.defs do
       println(s"\n  ${binding.name}: ${binding.tp.show}")
       println(s"  ${binding.value.show}")
 
-    result.mainBinding match
-      case Some(binding) =>
-        // Link support functions
-        val supportModules: Map[String, Module] =
-          module.defs
-            .filter(_.name != binding.name)
-            .groupBy(b =>
-              rmodule.defs.find(_.name == b.name).flatMap(_.module_name).getOrElse(module.name)
-            )
-            .map { (modName, bindings) =>
-              modName -> Module(module.version, modName, false, None, bindings)
-            }
+    val linked = RustusLoader.link(converted.main.value, converted.supportModules)
+    println(s"\n--- Rust linked SIR ---")
+    println(scalus.show(linked))
 
-        val linkedSir = RustusLoader.link(binding.value, supportModules)
+    val validator = RustusLoader.lower(linked, rmodule.options)
+    println(s"\n--- Rust UPLC ---")
+    println(validator.term.pretty.render(80))
+    validator
 
-        println(s"\n--- Rust linked SIR ---")
-        println(scalus.show(linkedSir))
-
-        println(s"\n--- Rust UPLC ---")
-        try
-          val rustTerm = SirToUplcV3Lowering(linkedSir, generateErrorTraces = true).lower()
-          println(rustTerm.pretty.render(80))
-
-          println(s"\n--- Rust Evaluation ---")
-          evaluateValidator(rustTerm, "Rust")
-        catch
-          case e: Exception =>
-            println(s"Lowering failed: ${e.getMessage}")
-
-      case None =>
-        println("No main binding found")
-
-  private def evaluateValidator(term: Term, label: String): Unit =
-    import scalus.uplc.builtin.ByteString.*
-    import scalus.uplc.builtin.Data
-    import scalus.uplc.builtin.Data.toData
-    import scalus.cardano.onchain.plutus.v1.*
-    import scalus.cardano.onchain.plutus.prelude.List.{Cons, Nil}
-
-    val ownerPkh = PubKeyHash(hex"deadbeef")
-
-    // V1 ScriptContext with signatories containing our owner
-    val scriptContext = ScriptContext(
-      TxInfo(Nil, Nil, Value.zero, Value.zero, Nil, Nil, Interval.always,
-        Cons(ownerPkh, Nil), Nil, TxId(hex"bb")),
-      ScriptPurpose.Spending(TxOutRef(TxId(hex"deadbeef"), 0))
-    )
-
+  /** Evaluates `validator` on every case; returns the cases it gets wrong. */
+  private def evaluate(validator: CompiledValidator, label: String): List[String] =
     // OwnerDatum { owner = PubKeyHash(deadbeef) }
-    val datumData = Data.Constr(0, scalus.cardano.onchain.plutus.prelude.List(ownerPkh.toData))
+    val datumData = Data.Constr(0, scalus.cardano.onchain.plutus.prelude.List(owner.toData))
 
-    import TermDSL.given
-    val applied = term $ datumData $ Data.unit $ scriptContext.toData
-    given PlutusVM = PlutusVM.makePlutusV3VM()
-    val result = scalus.uplc.Program.plutusV3(applied).deBruijnedProgram.evaluateDebug
-    result match
-      case Result.Success(t, budget, _, logs) =>
-        println(s"$label SUCCESS: ${t.pretty.render(80)}")
-        println(s"$label Budget: $budget")
-        if logs.nonEmpty then println(s"$label Logs: ${logs.mkString(", ")}")
-      case Result.Failure(ex, budget, _, logs) =>
-        println(s"$label FAILED: ${ex.getMessage}")
-        println(s"$label Budget: $budget")
-        if logs.nonEmpty then println(s"$label Logs: ${logs.mkString(", ")}")
+    cases.flatMap { (name, signer, mustAccept) =>
+      // V1 ScriptContext whose only signatory is `signer`
+      val scriptContext = ScriptContext(
+        TxInfo(Nil, Nil, Value.zero, Value.zero, Nil, Nil, Interval.always,
+          Cons(signer, Nil), Nil, TxId(hex"bb")),
+        ScriptPurpose.Spending(TxOutRef(TxId(hex"deadbeef"), 0))
+      )
+      val result = validator.evaluate(List(datumData, Data.unit, scriptContext.toData))
+      val accepted = result match
+        case Result.Success(t, budget, _, logs) =>
+          println(s"$label, $name: SUCCESS ${t.pretty.render(80)}, budget $budget")
+          if logs.nonEmpty then println(s"  logs: ${logs.mkString(", ")}")
+          true
+        case Result.Failure(ex, budget, _, logs) =>
+          println(s"$label, $name: FAILED ${ex.getMessage}, budget $budget")
+          if logs.nonEmpty then println(s"  logs: ${logs.mkString(", ")}")
+          false
+      if accepted == mustAccept then None
+      else Some(s"$label ${if mustAccept then "rejects" else "accepts"} a transaction $name")
+    }

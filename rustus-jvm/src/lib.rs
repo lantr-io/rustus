@@ -42,29 +42,33 @@ pub enum RustusError {
 /// Created once and cached for the process lifetime.
 pub struct ScalusVM {
     jvm: Arc<JavaVM>,
-    /// Why the JAR cannot be used, if it was built against another Scalus version.
+    /// Why the JAR cannot be used, if it was built against another Scalus version or from
+    /// other loader sources than this checkout's.
     /// Kept rather than returned from `new`: a process can create only one JVM, so a
     /// failed `new` could not be retried, and every later call would fail obscurely.
     stale_jar: Option<String>,
 }
 
-/// `scalusVersion` from scala-loader/build.sbt, read by build.rs. None outside this
-/// repository, where the JAR's version is not checked.
+/// What the loader JAR must have been built from, read by build.rs from this checkout's
+/// scala-loader/: `scalusVersion` from build.sbt, and the hash of build.sbt and loader/src/
+/// that build.sbt also writes into the JAR. None outside this repository, where the JAR is
+/// not checked.
 const EXPECTED_SCALUS_VERSION: Option<&str> = option_env!("RUSTUS_SCALUS_VERSION");
+const EXPECTED_LOADER_FINGERPRINT: Option<&str> = option_env!("RUSTUS_LOADER_FINGERPRINT");
 
 impl ScalusVM {
     /// Create a new JVM instance with the Scalus uber-JAR on the classpath.
     ///
     /// Locates libjvm via JAVA_HOME or `which java`.
     /// Locates the uber-JAR via RUSTUS_JAR env, development path, or ~/.rustus/lib/.
-    /// A JAR built against a Scalus version other than build.sbt's is not refused here,
-    /// but every `compile` then fails with `RustusError::JarVersionMismatch`.
+    /// A JAR built against another Scalus version than build.sbt's, or from other
+    /// scala-loader sources, is not refused here, but every `compile` then fails with
+    /// `RustusError::JarVersionMismatch`.
     pub fn new() -> Result<Self, RustusError> {
         jvm::find_libjvm()?; // validate JVM exists before attempting to create
         let jar_path = jar::find_jar()?;
         let jvm = jvm::create_jvm(&jar_path)?;
-        let stale_jar = EXPECTED_SCALUS_VERSION
-            .and_then(|expected| stale_jar_reason(&jvm, &jar_path, expected));
+        let stale_jar = stale_jar_reason(&jvm, &jar_path);
         Ok(ScalusVM {
             jvm: Arc::new(jvm),
             stale_jar,
@@ -282,35 +286,69 @@ impl EvalResult {
 }
 
 /// Why the loader JAR at `jar` cannot be used with this build, or None if it was built
-/// against Scalus `expected`.
-fn stale_jar_reason(jvm: &JavaVM, jar: &Path, expected: &str) -> Option<String> {
+/// against the expected Scalus version and from the expected sources (or there is nothing to
+/// check against).
+fn stale_jar_reason(jvm: &JavaVM, jar: &Path) -> Option<String> {
+    if EXPECTED_SCALUS_VERSION.is_none() && EXPECTED_LOADER_FINGERPRINT.is_none() {
+        return None;
+    }
     let rebuild = "rebuild it with: cd scala-loader && sbt loader/assembly";
+    let jar = jar.display();
     let mut env = match jvm.attach_current_thread() {
         Ok(env) => env,
-        Err(e) => return Some(format!("cannot check {}: {e}", jar.display())),
+        Err(e) => return Some(format!("cannot check {jar}: {e}")),
     };
+    if let Some(expected) = EXPECTED_SCALUS_VERSION {
+        match loader_string(&mut env, "scalusVersion") {
+            Some(found) if found == expected => {}
+            Some(found) => {
+                return Some(format!(
+                    "{jar} is built against Scalus {found}, but scala-loader/build.sbt pins {expected}; {rebuild}"
+                ));
+            }
+            None => {
+                return Some(format!(
+                    "{jar} does not report its Scalus version (expected {expected}); {rebuild}"
+                ));
+            }
+        }
+    }
+    if let Some(expected) = EXPECTED_LOADER_FINGERPRINT {
+        match loader_string(&mut env, "loaderFingerprint") {
+            Some(found) if found == expected => {}
+            Some(_) => {
+                return Some(format!(
+                    "{jar} is built from other sources than this checkout's scala-loader/build.sbt and scala-loader/loader/src/; {rebuild}"
+                ));
+            }
+            None => {
+                return Some(format!(
+                    "{jar} does not report which scala-loader sources it is built from; {rebuild}"
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The result of the static `RustusLoader.<method>(): String`, or None if the JAR has no
+/// such method (an older JAR) or it returns an empty string. Clears the Java exception.
+fn loader_string(env: &mut jni::JNIEnv, method: &str) -> Option<String> {
     let found = env
         .call_static_method(
             "rustus/loader/RustusLoader",
-            "scalusVersion",
+            method,
             "()Ljava/lang/String;",
             &[],
         )
         .and_then(|value| value.l())
         .and_then(|obj| env.get_string(&JString::from(obj)).map(String::from));
     match found {
-        Ok(found) if found == expected => None,
-        Ok(found) => Some(format!(
-            "{} is built against Scalus {found}, but scala-loader/build.sbt pins {expected}; {rebuild}",
-            jar.display()
-        )),
+        Ok(found) if !found.is_empty() => Some(found),
+        Ok(_) => None,
         Err(_) => {
-            // A JAR from before this check has no RustusLoader.scalusVersion.
             let _ = env.exception_clear();
-            Some(format!(
-                "{} does not report its Scalus version (expected {expected}); {rebuild}",
-                jar.display()
-            ))
+            None
         }
     }
 }

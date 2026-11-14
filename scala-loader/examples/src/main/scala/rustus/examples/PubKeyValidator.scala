@@ -35,7 +35,7 @@ object PubKeyValidatorCompiled {
   import scalus.compiler.{compile, Options}
   import scalus.compiler.sir.TargetLoweringBackend
 
-  given Options = Options(
+  given options: Options = Options(
     targetLoweringBackend = TargetLoweringBackend.SirToUplcV3Lowering,
     generateErrorTraces = true,
     optimizeUplc = false,

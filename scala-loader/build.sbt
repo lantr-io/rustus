@@ -31,6 +31,12 @@ lazy val loader = project.in(file("loader")).settings(
     case _ => MergeStrategy.first
   },
   libraryDependencies ++= jsoniterDeps :+ ("org.bouncycastle" % "bcprov-jdk18on" % bouncyCastleVersion),
+  // The hash of the sources the JAR is built from, which rustus-jvm checks (RustusLoader.loaderFingerprint).
+  Compile / resourceGenerators += Def.task {
+    val file = (Compile / resourceManaged).value / "rustus-loader-fingerprint.txt"
+    IO.write(file, LoaderFingerprint((ThisBuild / baseDirectory).value))
+    Seq(file)
+  }.taskValue,
 )
 
 // Scala examples: scalus validators that are analogs of the Rust validators
